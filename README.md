@@ -163,15 +163,3 @@ an application database with the disposable-database commands above.
   content may still hit the unique hash constraint.
 
 Reference: [Gemini embeddings on Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-text-embeddings).
-
-## Dependencies and deployment credentials
-
-Keep `uv.lock` in version control alongside `pyproject.toml` to reproduce exact
-resolved dependency versions, as recommended by the
-[uv documentation](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile).
-The generated `.venv` directory stays ignored.
-
-The Compose database credentials are for disposable local development only.
-Deployments must retrieve credentials from Secret Manager or Vault and inject
-them into the application's `RAG_DB_URL` at runtime; do not ship the local password
-or commit deployment secrets. This repository does not provision that integration.
