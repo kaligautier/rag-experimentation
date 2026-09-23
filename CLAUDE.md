@@ -617,11 +617,11 @@ mcp__sequential-thinking__sequentialthinking(
 **Testing the ADK Web Interface**:
 ```python
 # 1. Start the ADK web server
-just api  # Runs at http://localhost:8000/dev-ui
+just api  # Runs at http://127.0.0.1:8000/dev-ui
 
 # 2. Use Playwright to test
 # Claude can invoke Playwright MCP to:
-# - Navigate to http://localhost:8000/dev-ui
+# - Navigate to http://127.0.0.1:8000/dev-ui
 # - Test agent conversation flow
 # - Verify tool execution in UI
 # - Screenshot results

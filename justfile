@@ -21,8 +21,8 @@ install: _check-uv
 
 # Launch agent as API server
 [group('run')]
-api: _check-uv
-    cd {{ source_directory() }}/src && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+api port="8000": _check-uv
+    cd {{ source_directory() }}/src && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port {{ port }}
 
 # Format code with ruff
 [group('quality')]
@@ -40,8 +40,13 @@ lint: _check-uv
 
 # Run full test suite with coverage
 [group('quality')]
-test: _check-uv
-    cd {{ source_directory() }}/src && uv run pytest --cov=app --cov-report=term-missing
+test *args: _check-uv
+    cd {{ source_directory() }}/src && uv run pytest --cov=app --cov-report=term-missing {{ args }}
+
+# Integration tests use isolated schemas in the local pgvector database.
+[group('quality')]
+test-integration *args: _check-uv
+    cd {{ source_directory() }}/src && RAG_TEST_DB_URL="${RAG_TEST_DB_URL:-${RAG_DB_URL}}" uv run pytest test/integration -q {{ args }}
 
 # Run all quality checks (format + lint + test) - required before commit
 [group('quality')]
