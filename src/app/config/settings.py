@@ -10,6 +10,106 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.utils.error import ConfigurationError
 
 
+class RagSettings(BaseSettings):
+    """RAG-specific configuration for document indexing and retrieval."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="RAG_",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    # Database configuration
+    DB_URL: str = Field(
+        default="postgresql+asyncpg://rag_user:secret@127.0.0.1:15433/rag_db",
+        description="PostgreSQL connection URL with asyncpg driver",
+    )
+    DB_POOL_SIZE: int = Field(
+        default=5,
+        description="Database connection pool size",
+    )
+    DB_MAX_OVERFLOW: int = Field(
+        default=2,
+        description="Maximum overflow connections beyond pool size",
+    )
+
+    EMBEDDING_MODEL: str = Field(
+        default="gemini-embedding-001",
+        description="Gemini embedding model served by Vertex AI",
+    )
+    EMBEDDING_DIMENSIONS: int = Field(
+        default=3072,
+        ge=128,
+        le=3072,
+        description="Output dimension; re-embed all documents when changing it",
+    )
+    EMBEDDING_LOCATION: str = Field(
+        default="",
+        description="Vertex AI region; defaults to GOOGLE_CLOUD_LOCATION",
+    )
+    EMBEDDING_BATCH_SIZE: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Maximum concurrent single-text Gemini embedding requests",
+    )
+
+    CHUNK_SIZE: int = Field(
+        default=1200,
+        ge=1,
+        description="Maximum searchable leaf size in tokens (LlamaIndex tokenizer)",
+    )
+    CHUNK_OVERLAP: int = Field(
+        default=200,
+        ge=0,
+        description="Token overlap when subdividing a long Markdown section",
+    )
+    MIN_CHUNK_SIZE: int = Field(
+        default=200,
+        ge=1,
+        description="Minimum chunk size (smaller chunks are merged)",
+    )
+    MAX_CHUNKS_PER_DOC: int = Field(
+        default=2000,
+        ge=1,
+        description="Maximum number of chunks per document",
+    )
+
+    # Retrieval configuration
+    TOP_K: int = Field(
+        default=5,
+        description="Number of top results to return in search",
+    )
+    SIMILARITY_THRESHOLD: float = Field(
+        default=0.0,
+        description="Minimum cosine similarity threshold (0.0 = disabled)",
+    )
+    MAX_PARENT_TOKENS: int = Field(
+        default=4096,
+        ge=1,
+        description="Maximum parent context size returned by hierarchical retrieval",
+    )
+    MAX_UPLOAD_BYTES: int = Field(
+        default=5242880,
+        ge=1,
+        description="Maximum file upload size in bytes (5 MiB default)",
+    )
+
+    # Storage configuration
+    STORAGE_TYPE: str = Field(
+        default="local",
+        description="Storage backend: 'local' or 'gcs'",
+    )
+    STORAGE_PATH: str = Field(
+        default="/tmp/rag_storage",
+        description="Local file storage path (used if STORAGE_TYPE='local')",
+    )
+    STORAGE_BUCKET_NAME: str = Field(
+        default="",
+        description="GCS bucket name (used if STORAGE_TYPE='gcs')",
+    )
+
+
 class Settings(BaseSettings):
     """
     Application settings with environment variable support.
@@ -25,6 +125,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=True,
+        extra="ignore",
     )
 
     # Auto-load .env file in non-Docker environments
@@ -75,8 +176,12 @@ class Settings(BaseSettings):
         description="Primary agent name",
     )
     MODEL: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-3.8-flash",
         description="AI model to use for the agent",
+    )
+    EVAL_MODEL: str = Field(
+        default="gemini-3.1-pro-preview",
+        description="Independent Vertex AI judge for RAG correctness evaluation",
     )
 
     # Agent directory (computed from project structure)
@@ -107,6 +212,12 @@ class Settings(BaseSettings):
         default="api_user",
         description="Default user ID for session management",
     )
+
+    # RAG configuration
+    @property
+    def rag(self) -> RagSettings:  # noqa: N802
+        """Get RAG-specific configuration."""
+        return RagSettings()
 
 
 # Singleton settings instance with error handling
