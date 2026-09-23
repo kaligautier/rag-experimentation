@@ -33,6 +33,17 @@ def test_settings_has_defaults():
     assert settings.PORT == 8000
 
 
+def should_default_to_current_gemini_models():
+    """Keep the existing agent model and full-quality embedding space."""
+    from app.config.settings import RagSettings, Settings
+
+    assert Settings.model_fields["MODEL"].default == "gemini-2.5-flash"
+    assert RagSettings.model_fields["EMBEDDING_MODEL"].default == (
+        "gemini-embedding-001"
+    )
+    assert RagSettings.model_fields["EMBEDDING_DIMENSIONS"].default == 3072
+
+
 def test_agent_dir_property():
     """Test that AGENT_DIR property returns correct path."""
     from pathlib import Path
