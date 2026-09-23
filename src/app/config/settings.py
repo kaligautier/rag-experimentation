@@ -179,6 +179,10 @@ class Settings(BaseSettings):
         default="gemini-3.8-flash",
         description="AI model to use for the agent",
     )
+    EVAL_MODEL: str = Field(
+        default="gemini-3.1-pro-preview",
+        description="Independent Vertex AI judge for RAG correctness evaluation",
+    )
 
     # Agent directory (computed from project structure)
     @property
