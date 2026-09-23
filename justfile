@@ -21,7 +21,7 @@ install: _check-uv
 
 # Launch agent as API server
 [group('run')]
-api port="7777": _check-uv
+api port="8000": _check-uv
     cd {{ source_directory() }}/src && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port {{ port }}
 
 # Format code with ruff
