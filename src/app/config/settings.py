@@ -176,7 +176,7 @@ class Settings(BaseSettings):
         description="Primary agent name",
     )
     MODEL: str = Field(
-        default="gemini-2.5-flash",
+        default="gemini-3.8-flash",
         description="AI model to use for the agent",
     )
 

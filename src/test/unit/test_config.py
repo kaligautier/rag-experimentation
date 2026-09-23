@@ -10,7 +10,7 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
-AGENT_MODEL = "gemini-2.5-flash"
+AGENT_MODEL = "gemini-3.8-flash"
 EMBEDDING_MODEL = "gemini-embedding-001"
 
 
@@ -37,7 +37,7 @@ def test_settings_has_defaults():
 
 
 def should_default_to_current_gemini_models():
-    """Keep the existing agent model and full-quality embedding space."""
+    """Model defaults target Gemini 3.8 and the full-quality embedding space."""
     from app.config.settings import RagSettings, Settings
 
     assert Settings.model_fields["MODEL"].default == AGENT_MODEL
