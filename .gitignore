@@ -3,6 +3,9 @@
 .env.local
 .gcloud/
 
+# Operating system metadata
+.DS_Store
+
 # Python environment and generated files
 .venv/
 __pycache__/
