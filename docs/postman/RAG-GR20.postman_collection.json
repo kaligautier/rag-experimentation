@@ -1,0 +1,539 @@
+{
+  "info": {
+    "name": "RAG GR20 Collection",
+    "description": "Endpoints utiles pour tester le RAG : santé du serveur, indexation, consultation des documents et chunks, recherche et suppression.\n\n10 requêtes couvrent les 6 opérations HTTP, avec des recherches sémantiques multi-axes GR20 (étapes, équipement, période, durée/statistiques) et une réindexation forcée.\nPour consulter les chunks : dossier 01, GET /rag/documents/{document_id}. document_id est prérempli avec le GR20 local.\nUne indexation réussie met à jour document_id. La suppression utilise delete_document_id, à renseigner explicitement.\nLe corpus est indexé une fois en 3072 dimensions. Grâce aux préfixes MRL, chaque recherche peut choisir entre 128 et 3072 dimensions sans réindexation ; les exemples couvrent 768, 1536 et 3072.\nGuide : docs/postman/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "00 - Serveur",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/health",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "GET `/health`\n\nHealth check endpoint for monitoring systems.\n\nReturns:\n    JSONResponse: A simple JSON response with status \"ok\""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 - RAG - Consulter les documents et chunks",
+      "description": "Lecture disponible sans appel Gemini, même avant la migration des vecteurs. Commencer ici pour inspecter le GR20.",
+      "item": [
+        {
+          "name": "GET /rag/documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/documents?limit={{limit}}&offset={{offset}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "documents"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "{{limit}}",
+                  "disabled": false,
+                  "description": "Paramètre limit."
+                },
+                {
+                  "key": "offset",
+                  "value": "{{offset}}",
+                  "disabled": false,
+                  "description": "Paramètre offset."
+                }
+              ]
+            },
+            "description": "GET `/rag/documents`\n\nList indexed documents."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Liste paginée\", () => { pm.expect(body.documents).to.be.an(\"array\"); pm.expect(body.total).to.be.at.least(body.documents.length); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /rag/documents/{document_id}",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/documents/{{document_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "documents",
+                "{{document_id}}"
+              ]
+            },
+            "description": "GET `/rag/documents/{document_id}`\n\nGet document details with chunks."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const document = pm.response.json().document;",
+                  "  pm.test(\"Document et chunks complets\", () => { pm.expect(document.id).to.eql(pm.variables.get(\"document_id\")); pm.expect(document.chunks.length).to.eql(document.chunk_count); document.chunks.forEach(c => { pm.expect(c.content).to.be.a(\"string\"); pm.expect(c.metadata).to.be.an(\"object\"); pm.expect(/^#{1,6}\\s+[^\\n]+$/.test(c.content.trim()), \"Aucun titre seul\").to.eql(false); }); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - RAG - Indexation et recherche",
+      "description": "Gemini et migration des vecteurs requis. Un HTTP 503 indique que la migration reste nécessaire ; ce statut est un échec des assertions de succès, pas une recherche validée.",
+      "item": [
+        {
+          "name": "POST /rag/index",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/index",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "index"
+              ]
+            },
+            "description": "POST `/rag/index`\n\nIndex a Markdown document into the RAG system.\n\nNécessite des embeddings Gemini et un schéma migré. HTTP 503 : migration des vecteurs requise. Les routes GET de consultation restent disponibles.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "docs/fixtures/gr20.md",
+                  "description": "Sélectionner le fichier local à envoyer."
+                },
+                {
+                  "key": "title",
+                  "type": "text",
+                  "value": "GR20 Randonnée"
+                },
+                {
+                  "key": "force",
+                  "type": "text",
+                  "value": "false"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Document indexé\", () => { pm.expect(body.document_id).to.be.a(\"string\"); pm.expect(body.chunk_count).to.be.above(0); });",
+                  "  if (body.document_id) pm.collectionVariables.set(\"document_id\", body.document_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /rag/index — Réindexer (force=true)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/index",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "index"
+              ]
+            },
+            "description": "POST `/rag/index`\n\nIndex a Markdown document into the RAG system.\n\nNécessite des embeddings Gemini et un schéma migré. HTTP 503 : migration des vecteurs requise. Les routes GET de consultation restent disponibles.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "docs/fixtures/gr20.md",
+                  "description": "Sélectionner le fichier local à envoyer."
+                },
+                {
+                  "key": "title",
+                  "type": "text",
+                  "value": "GR20 Randonnée"
+                },
+                {
+                  "key": "force",
+                  "type": "text",
+                  "value": "true"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Document indexé\", () => { pm.expect(body.document_id).to.be.a(\"string\"); pm.expect(body.chunk_count).to.be.above(0); });",
+                  "  if (body.document_id) pm.collectionVariables.set(\"document_id\", body.document_id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /rag/search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/search",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "search"
+              ]
+            },
+            "description": "POST `/rag/search`\n\nSearch documents using vector similarity.\n\nNécessite des embeddings Gemini et un schéma migré. HTTP 503 : migration des vecteurs requise. Les routes GET de consultation restent disponibles.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"{{query}}\",\n  \"top_k\": {{top_k}},\n  \"similarity_threshold\": {{similarity_threshold}},\n  \"country_code\": null,\n  \"embedding_dimensions\": {{search_embedding_dimensions}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
+                  "  pm.test(\"Dimension MRL demandée\", () => pm.expect(body.embedding_dimensions).to.eql(Number(pm.variables.get(\"search_embedding_dimensions\"))));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /rag/search — Équipement [768d]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/search",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "search"
+              ]
+            },
+            "description": "POST `/rag/search`\n\nSearch documents using vector similarity.\n\nNécessite des embeddings Gemini et un schéma migré. HTTP 503 : migration des vecteurs requise. Les routes GET de consultation restent disponibles.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"équipement essentiel GR20\",\n  \"top_k\": {{top_k}},\n  \"similarity_threshold\": {{similarity_threshold}},\n  \"country_code\": null,\n  \"embedding_dimensions\": 768\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
+                  "  pm.test(\"Recherche MRL 768 dimensions\", () => pm.expect(body.embedding_dimensions).to.eql(768));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /rag/search — Meilleure période [1536d]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/search",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "search"
+              ]
+            },
+            "description": "POST `/rag/search`\n\nSearch documents using vector similarity.\n\nNécessite des embeddings Gemini et un schéma migré. HTTP 503 : migration des vecteurs requise. Les routes GET de consultation restent disponibles.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Quelle est la meilleure période pour le GR20 ?\",\n  \"top_k\": {{top_k}},\n  \"similarity_threshold\": {{similarity_threshold}},\n  \"country_code\": null,\n  \"embedding_dimensions\": 1536\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
+                  "  pm.test(\"Recherche MRL 1536 dimensions\", () => pm.expect(body.embedding_dimensions).to.eql(1536));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /rag/search — Durée et statistiques [3072d]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/search",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "search"
+              ]
+            },
+            "description": "Recherche sémantique à qualité maximale sur les 3072 dimensions stockées : durée, distance et statistiques du GR20.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"Quelle est la durée habituelle et la distance totale du GR20 ?\",\n  \"top_k\": {{top_k}},\n  \"similarity_threshold\": {{similarity_threshold}},\n  \"country_code\": null,\n  \"embedding_dimensions\": 3072\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
+                  "  pm.test(\"Embeddings 3072 dimensions\", () => body.results.forEach(result => pm.expect(result.metadata.embedding_dimensions).to.eql(Number(pm.collectionVariables.get(\"embedding_dimensions\")))));",
+                  "  pm.test(\"Recherche MRL 3072 dimensions\", () => pm.expect(body.embedding_dimensions).to.eql(3072));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Supprimer un document",
+      "description": "Renseigner delete_document_id avec le document à supprimer. Le document consulté reste dans document_id.",
+      "item": [
+        {
+          "name": "DELETE /rag/documents/{document_id}",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/rag/documents/{{delete_document_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "rag",
+                "documents",
+                "{{delete_document_id}}"
+              ]
+            },
+            "description": "DELETE `/rag/documents/{document_id}`\n\nDelete a document.\n\nSupprime la ressource indiquée dans les variables de cette requête."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://127.0.0.1:7777",
+      "type": "string",
+      "description": "Adresse HTTP du serveur local."
+    },
+    {
+      "key": "document_id",
+      "value": "3d227721-a61f-415c-86ca-f84769c5d252",
+      "type": "string",
+      "description": "Document à consulter ; initialisé au GR20 existant, mis à jour après indexation réussie."
+    },
+    {
+      "key": "delete_document_id",
+      "value": "",
+      "type": "string",
+      "description": "Identifiant du document à supprimer, à renseigner explicitement."
+    },
+    {
+      "key": "limit",
+      "value": "100",
+      "type": "string",
+      "description": "Pagination documents : de 1 à 1000."
+    },
+    {
+      "key": "offset",
+      "value": "0",
+      "type": "string",
+      "description": "Pagination documents : nombre de documents ignorés."
+    },
+    {
+      "key": "query",
+      "value": "étapes principales GR20",
+      "type": "string",
+      "description": "Question de recherche documentaire."
+    },
+    {
+      "key": "top_k",
+      "value": "5",
+      "type": "string",
+      "description": "Nombre de résultats, de 1 à 100."
+    },
+    {
+      "key": "similarity_threshold",
+      "value": "0",
+      "type": "string",
+      "description": "Seuil cosinus ; 0 désactive le filtrage."
+    },
+    {
+      "key": "embedding_dimensions",
+      "value": "3072",
+      "type": "string",
+      "description": "Dimension complète des embeddings stockés ; valeur vérifiée dans les métadonnées des résultats."
+    },
+    {
+      "key": "search_embedding_dimensions",
+      "value": "768",
+      "type": "string",
+      "description": "Dimension du préfixe MRL utilisé par la recherche générique, entre 128 et 3072."
+    }
+  ]
+}
