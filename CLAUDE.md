@@ -225,7 +225,8 @@ agent = LlmAgent(
 ## RAG (Retrieval-Augmented Generation) System
 
 The RAG experiment indexes UTF-8 Markdown and searches PostgreSQL/pgvector.
-See `README.md` for runnable commands.
+See `README.md` for runnable commands and `eval/rag/correctness/RUN.md`
+for evaluation prerequisites and commands.
 
 ### Runtime
 - API: `just api` on `127.0.0.1:7777`; PostgreSQL: `docker compose up -d postgres`

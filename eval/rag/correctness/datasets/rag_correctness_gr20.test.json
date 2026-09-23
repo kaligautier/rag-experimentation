@@ -1,0 +1,76 @@
+{
+  "eval_set_id": "rag_correctness_gr20",
+  "name": "RAG correctness — GR20",
+  "description": "Questions based on the GR20 Randonnée document already indexed in the local database.",
+  "eval_cases": [
+    {
+      "eval_id": "carrozzu_ciottulu_denivele",
+      "conversation": [
+        {
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Dans le document indexé GR20 Randonnée, utilise la recherche documentaire. Quel est le dénivelé négatif de l'étape Refuge de Carrozzu à Refuge de Ciottulu ? Réponds seulement à partir du document."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "L'étape Refuge de Carrozzu à Refuge de Ciottulu a un dénivelé négatif de 700 m (-700 m)."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "nombre_refuges",
+      "conversation": [
+        {
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Selon le document indexé GR20 Randonnée, utilise la recherche documentaire. Combien de refuges le GR20 compte-t-il ? Réponds seulement à partir du document."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Le document indique que le GR20 compte 17 refuges."
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "question_hors_corpus",
+      "conversation": [
+        {
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Selon le document indexé GR20 Randonnée, utilise la recherche documentaire. Quelle est la capitale du Japon ? Réponds seulement à partir du document."
+              }
+            ]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [
+              {
+                "text": "Je n'ai pas d'information sur ce sujet dans le document indexé."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
