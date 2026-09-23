@@ -5,8 +5,6 @@ services:
     environment:
       POSTGRES_DB: rag_db
       POSTGRES_USER: rag_user
-      # Local development only; deployments must inject credentials from
-      # Secret Manager or Vault instead of using this Compose password.
       POSTGRES_PASSWORD: secret
     ports:
       - "127.0.0.1:15433:5432"
