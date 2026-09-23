@@ -40,15 +40,3 @@ Integration tests require `RAG_TEST_DB_URL`; Liquibase additionally requires
 ```bash
 RAG_TEST_DB_URL=postgresql+asyncpg://rag_user:secret@127.0.0.1:15433/rag_db just test-integration
 ```
-
-## Dependencies and deployment credentials
-
-Keep `uv.lock` in version control alongside `pyproject.toml` to reproduce exact
-resolved dependency versions, as recommended by the
-[uv documentation](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile).
-The generated `.venv` directory stays ignored.
-
-The Compose database credentials are for disposable local development only.
-Deployments must retrieve credentials from Secret Manager or Vault and inject
-them into the application's `RAG_DB_URL` at runtime; do not ship the local password
-or commit deployment secrets. This repository does not provision that integration.
