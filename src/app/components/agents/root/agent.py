@@ -30,6 +30,8 @@ from app.components.tools.custom.example_tool import (
     calculate_tool,
     get_current_time_tool,
 )
+from app.components.tools.custom.index_document import index_document
+from app.components.tools.custom.search_documents import search_documents
 from app.config.constants import SINGLE_AGENT_DESCRIPTION, SINGLE_AGENT_INSTRUCTION
 from app.config.settings import settings
 
@@ -44,6 +46,8 @@ assistant_agent = LlmAgent(
     tools=[
         calculate_tool,
         get_current_time_tool,
+        index_document,
+        search_documents,
     ],
     before_agent_callback=log_agent_start,  # Log when agent starts
     after_agent_callback=log_agent_end,  # Log when agent completes
