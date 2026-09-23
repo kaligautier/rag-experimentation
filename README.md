@@ -51,8 +51,7 @@ their handlers; errors after streaming starts cannot replace the response body.
 ## Indexing and search
 
 ```bash
-printf '# Local RAG test\n\nThe meeting starts at 09:00.\n' > /tmp/rag-example.md
-curl -F 'file=@/tmp/rag-example.md;type=text/markdown' \
+curl -F 'file=@docs/fixtures/gr20.md;type=text/markdown' \
   -F 'title=GR20 Randonnée' http://127.0.0.1:8000/rag/index
 
 curl -H 'Content-Type: application/json' \
@@ -104,6 +103,18 @@ exceeded; the ADK tool enforces the same limit.
 | GET | `/rag/documents/{id}` | Document, full content, and chunk metadata |
 | POST | `/rag/search` | Cosine search |
 | DELETE | `/rag/documents/{id}` | Delete the document and its database chunks |
+
+The [Postman collection](docs/postman/RAG-GR20.postman_collection.json) contains
+10 requests covering these six operations, including four RAG searches
+(variable, 768, 1536, and 3072 dimensions) and forced reindexing. Import its
+[environment](docs/postman/RAG-GR20.postman_environment.json), then open
+**01 - RAG - Consulter les documents et chunks** to inspect the existing GR20
+document without indexing it first. `document_id` is prefilled; DELETE uses the
+separate `delete_document_id` variable, which must be supplied explicitly.
+
+Uploads use `docs/fixtures/gr20.md`; successful indexing automatically stores
+`document_id`. On a fresh database, upload the fixture before running requests
+that use this ID: the prefilled value refers to a previous local indexing.
 
 ## Checks
 
@@ -161,5 +172,8 @@ an application database with the disposable-database commands above.
 - DELETE removes database records; local source files remain in `RAG_STORAGE_PATH`.
 - Deduplication covers successive uploads; concurrent uploads of identical
   content may still hit the unique hash constraint.
+
+For answer-quality evaluation, see the [evaluation overview](eval/rag/correctness/OVERVIEW.md)
+and [run instructions](eval/rag/correctness/RUN.md).
 
 Reference: [Gemini embeddings on Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-text-embeddings).
