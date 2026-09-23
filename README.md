@@ -40,3 +40,10 @@ Integration tests require `RAG_TEST_DB_URL`; Liquibase additionally requires
 ```bash
 RAG_TEST_DB_URL=postgresql+asyncpg://rag_user:secret@127.0.0.1:15433/rag_db just test-integration
 ```
+
+## RAG services
+
+`IndexationService` extracts, chunks, embeds and persists documents. Identical
+indexed content is reused; forced indexing retains the document ID.
+`InterrogationService` searches vectors and merges linked parent context.
+Callers own transaction commit/rollback; HTTP and agent wiring come separately.
