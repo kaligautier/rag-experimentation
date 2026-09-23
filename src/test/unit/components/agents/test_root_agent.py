@@ -66,11 +66,14 @@ class TestRootAgent:
 
         assert get_current_time_tool in assistant_agent.tools
 
-    def should_have_two_tools(self):
-        """Test agent has exactly two tools."""
+    def should_have_rag_tools(self):
+        """The assistant can index and search documents alongside the demo tools."""
         from app.components.agents.root.agent import assistant_agent
+        from app.components.tools.custom.index_document import index_document
+        from app.components.tools.custom.search_documents import search_documents
 
-        assert len(assistant_agent.tools) == 2
+        assert index_document in assistant_agent.tools
+        assert search_documents in assistant_agent.tools
 
     def should_have_before_agent_callback(self):
         """Test agent has before_agent_callback configured."""
