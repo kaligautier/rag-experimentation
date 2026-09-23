@@ -192,14 +192,14 @@ async def calculate(operation: str, a: float, b: float, tool_context: ToolContex
 ```bash
 GOOGLE_GENAI_USE_VERTEXAI=true
 GOOGLE_CLOUD_PROJECT=your-gcp-project
-GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLOUD_LOCATION=global
 ```
 
 **Optional (with defaults)**:
 ```bash
 APP_NAME="ADK Agent Template"
 AGENT_NAME=template_agent
-MODEL=gemini-2.5-flash
+MODEL=gemini-3.8-flash
 LOG_LEVEL=INFO
 DEBUG=false
 ```
@@ -221,6 +221,50 @@ agent = LlmAgent(
 ```
 
 **Key Feature**: Settings auto-detects Docker environment and only loads `.env` file when not in Docker (prevents conflicts with container orchestration).
+
+## RAG (Retrieval-Augmented Generation) System
+
+The RAG experiment indexes UTF-8 Markdown and searches PostgreSQL/pgvector.
+See `README.md` for runnable commands.
+
+### Runtime
+- API: `just api` on `127.0.0.1:7777`; PostgreSQL: `docker compose up -d postgres`
+  on `127.0.0.1:15433` (avoids the local Homebrew PostgreSQL instance).
+- Embeddings: `gemini-embedding-001` through Vertex AI and Google Application
+  Default Credentials, 3072 dimensions by default. The ADK language model is
+  `gemini-3.8-flash` on the global endpoint and is configured separately by
+  `MODEL`.
+- `RAG_EMBEDDING_LOCATION` optionally overrides `GOOGLE_CLOUD_LOCATION`.
+- `RETRIEVAL_DOCUMENT` is used for chunks, `RETRIEVAL_QUERY` for questions.
+  One text per request, bounded concurrency, no silent truncation or local fallback.
+- Schema initialization runs during the ADK/FastAPI lifespan. Existing tables
+  are not automatically migrated. Liquibase `001` creates `vector(3072)` directly.
+  For this experimental project, recreate an old disposable database and reindex
+  the retained source documents; no upgrade or re-embedding script is included.
+
+### Data flow
+- `MarkdownExtractor` decodes UTF-8 `.md` / `.markdown` files.
+- `HierarchicalChunker` returns complete sections as `ParsedChunk` objects.
+  Heading-only nodes are omitted; ancestors are retained in `metadata.header_path`.
+- `IndexationService` embeds the ancestor context plus source content, then stores
+  the unmodified section content, heading metadata and vector.
+- Successive identical uploads are deduplicated by hash. `force=true` on the REST
+  upload regenerates chunks while keeping the document ID.
+- `RagRepository.search` uses cosine distance `<=>`, descending similarity,
+  `top_k`, an optional positive threshold, and document metadata `country_code`.
+- FastAPI sessions use a yield dependency. Agent tools use session context
+  managers; write handlers commit before reporting success.
+
+### Checks and limitations
+- `just lint`, `just test test/unit`, `just test-integration`.
+- Integration tests use explicitly qualified, unique PostgreSQL schemas.
+- Only Markdown extraction and local filesystem storage are implemented.
+  Oversized sections are split according to `RAG_CHUNK_SIZE` and
+  `RAG_CHUNK_OVERLAP`. Upload byte and chunk-count limits are enforced before
+  embeddings; path-bearing filenames are rejected. DELETE removes database
+  documents/chunks but retains original files in local storage.
+- The Liquibase changelog describes the initial schema; do not apply it after
+  SQLAlchemy has already created the same tables.
 
 ## Agent Auto-Detection by ADK
 
@@ -249,15 +293,38 @@ analytics_agent = LlmAgent(...)  # Variable name MUST be 'analytics_agent'
 
 ### Error Code Categories
 ```python
-# 1xxx: Input validation errors
+# 1xxx: Generic, configuration, and input errors (4xx/5xx)
 GENERIC_ERROR = 1000
 INVALID_INPUT = 1001
 CONFIGURATION_ERROR = 1002
 INSTRUCTION_ERROR = 1003
+UNSUPPORTED_DOCUMENT = 1004   # 400
+UNSAFE_FILENAME = 1005        # 400
+DOCUMENT_TOO_LARGE = 1006     # 413
+EMPTY_DOCUMENT = 1007         # 400
+DOCUMENT_NOT_FOUND = 1008     # 404
+DOCUMENT_NOT_INDEXED = 1009   # 409
 
-# 3xxx: External dependency errors
+# 3xxx: External dependency errors (502)
 TOOL_EXECUTION_ERROR = 3001
+EMBEDDING_ERROR = 3002
+
+# 5xxx: Storage errors
+EMBEDDING_SCHEMA_MISMATCH = 5001  # 503
 ```
+
+### Where errors are raised and handled
+- Adapters and services raise typed `AppError` subclasses (`DocumentNotFoundError`,
+  `UnsupportedDocumentError`, `DocumentLimitError`, ...) with structured `details`.
+  Never raise bare `ValueError` for a client-facing condition.
+- Routes contain no `try/except`. `register_error_handlers(app)` in
+  `application.py` renders any `AppError` as `{error_code, message, details}` with
+  its mapped status, and any other exception as a generic 500. Internal exception
+  text never reaches the client; the traceback goes to the logs. Handlers cover
+  ADK-generated routes too, before response headers are sent.
+- ADK tools return `tool_error_result(...)` from `components/tools/custom/_errors.py`:
+  `status: error`, a stable `error_code`, and the message for typed errors, or a
+  generic message for unexpected ones.
 
 ### Error Usage
 ```python
