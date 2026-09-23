@@ -26,15 +26,3 @@ Storage validates filenames and supports local files or GCS. UTF-8 Markdown
 sections form linked parent/child chunks with bounded leaf token counts. Vertex
 embeddings use `gemini-embedding-001` at 3072 dimensions; batched calls preserve
 input order and reject truncated or invalid vectors. Unit tests mock cloud calls.
-
-## Dependencies and deployment credentials
-
-Keep `uv.lock` in version control alongside `pyproject.toml` to reproduce exact
-resolved dependency versions, as recommended by the
-[uv documentation](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile).
-The generated `.venv` directory stays ignored.
-
-The Compose database credentials are for disposable local development only.
-Deployments must retrieve credentials from Secret Manager or Vault and inject
-them into the application's `RAG_DB_URL` at runtime; do not ship the local password
-or commit deployment secrets. This repository does not provision that integration.
