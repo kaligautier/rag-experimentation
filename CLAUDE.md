@@ -228,7 +228,7 @@ The RAG experiment indexes UTF-8 Markdown and searches PostgreSQL/pgvector.
 See `README.md` for runnable commands.
 
 ### Runtime
-- API: `just api` on `127.0.0.1:7777`; PostgreSQL: `docker compose up -d postgres`
+- API: `just api` on `127.0.0.1:8000`; PostgreSQL: `docker compose up -d postgres`
   on `127.0.0.1:15433` (avoids the local Homebrew PostgreSQL instance).
 - Embeddings: `gemini-embedding-001` through Vertex AI and Google Application
   Default Credentials, 3072 dimensions by default. The ADK language model is
@@ -684,11 +684,11 @@ mcp__sequential-thinking__sequentialthinking(
 **Testing the ADK Web Interface**:
 ```python
 # 1. Start the ADK web server
-just api  # Runs at http://127.0.0.1:7777/dev-ui
+just api  # Runs at http://127.0.0.1:8000/dev-ui
 
 # 2. Use Playwright to test
 # Claude can invoke Playwright MCP to:
-# - Navigate to http://127.0.0.1:7777/dev-ui
+# - Navigate to http://127.0.0.1:8000/dev-ui
 # - Test agent conversation flow
 # - Verify tool execution in UI
 # - Screenshot results
