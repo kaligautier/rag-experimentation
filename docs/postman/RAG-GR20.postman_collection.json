@@ -477,7 +477,7 @@
   "variable": [
     {
       "key": "BASE_URL",
-      "value": "http://127.0.0.1:7777",
+      "value": "http://127.0.0.1:8000",
       "type": "string",
       "description": "Adresse HTTP du serveur local."
     },

@@ -16,8 +16,8 @@ docker compose up -d postgres
 just api
 ```
 
-- API and ADK interface: <http://127.0.0.1:7777>.
-- OpenAPI: <http://127.0.0.1:7777/docs>.
+- API and ADK interface: <http://127.0.0.1:8000>.
+- OpenAPI: <http://127.0.0.1:8000/docs>.
 - Docker PostgreSQL: `127.0.0.1:15433`, database `rag_db`.
 - Use `just api 7778` to select another HTTP port.
 
@@ -52,11 +52,11 @@ their handlers; errors after streaming starts cannot replace the response body.
 
 ```bash
 curl -F 'file=@docs/fixtures/gr20.md;type=text/markdown' \
-  -F 'title=GR20 Randonnée' http://127.0.0.1:7777/rag/index
+  -F 'title=GR20 Randonnée' http://127.0.0.1:8000/rag/index
 
 curl -H 'Content-Type: application/json' \
   -d '{"query":"étapes principales GR20","top_k":5,"embedding_dimensions":768}' \
-  http://127.0.0.1:7777/rag/search
+  http://127.0.0.1:8000/rag/search
 ```
 
 Chunking follows Markdown sections: a heading and its body form a chunk.
@@ -177,3 +177,15 @@ For answer-quality evaluation, see the [evaluation overview](eval/rag/correctnes
 and [run instructions](eval/rag/correctness/RUN.md).
 
 Reference: [Gemini embeddings on Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/embeddings/get-text-embeddings).
+
+## Dependencies and deployment credentials
+
+Keep `uv.lock` in version control alongside `pyproject.toml` to reproduce exact
+resolved dependency versions, as recommended by the
+[uv documentation](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile).
+The generated `.venv` directory stays ignored.
+
+The Compose database credentials are for disposable local development only.
+Deployments must retrieve credentials from Secret Manager or Vault and inject
+them into the application's `RAG_DB_URL` at runtime; do not ship the local password
+or commit deployment secrets. This repository does not provision that integration.
