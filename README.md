@@ -11,10 +11,10 @@ cp .env.example .env
 # Configure the GOOGLE_* settings in .env.
 just lint
 just test test/unit
-just api 7777
+just api 8000
 ```
 
-The existing API listens on http://127.0.0.1:7777. RAG models, ports, typed errors
+The existing API listens on http://127.0.0.1:8000. RAG models, ports, typed errors
 and settings are defined in `src/app/services/rag/models.py`, `src/app/ports/rag`,
 `src/app/utils/error.py` and `src/app/config/settings.py`. Dependencies and the
 lockfile are updated together. The optional local PostgreSQL container uses
@@ -26,3 +26,15 @@ Storage validates filenames and supports local files or GCS. UTF-8 Markdown
 sections form linked parent/child chunks with bounded leaf token counts. Vertex
 embeddings use `gemini-embedding-001` at 3072 dimensions; batched calls preserve
 input order and reject truncated or invalid vectors. Unit tests mock cloud calls.
+
+## Dependencies and deployment credentials
+
+Keep `uv.lock` in version control alongside `pyproject.toml` to reproduce exact
+resolved dependency versions, as recommended by the
+[uv documentation](https://docs.astral.sh/uv/concepts/projects/layout/#the-lockfile).
+The generated `.venv` directory stays ignored.
+
+The Compose database credentials are for disposable local development only.
+Deployments must retrieve credentials from Secret Manager or Vault and inject
+them into the application's `RAG_DB_URL` at runtime; do not ship the local password
+or commit deployment secrets. This repository does not provision that integration.
