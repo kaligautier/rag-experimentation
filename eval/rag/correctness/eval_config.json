@@ -1,0 +1,13 @@
+{
+  "criteria": {
+    "rag_correctness": 1
+  },
+  "custom_metrics": {
+    "rag_correctness": {
+      "description": "Vertex AI judge comparing the final answer to the human reference answer.",
+      "code_config": {
+        "name": "eval.rag.correctness.correctness.correctness"
+      }
+    }
+  }
+}

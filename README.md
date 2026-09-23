@@ -91,11 +91,10 @@ The local API and ADK interface are at <http://127.0.0.1:8000>; OpenAPI is at
 <http://127.0.0.1:8000/docs>. Use `just api 7778` to select another port.
 
 ```bash
-printf '# Local RAG test\n\nThe meeting starts at 09:00.\n' > /tmp/rag-example.md
-curl -F 'file=@/tmp/rag-example.md;type=text/markdown' \
-  -F 'title=Meeting' http://127.0.0.1:8000/rag/index
+curl -F 'file=@docs/fixtures/gr20.md;type=text/markdown' \
+  -F 'title=GR20 Randonnée' http://127.0.0.1:8000/rag/index
 curl -H 'Content-Type: application/json' \
-  -d '{"query":"When does the meeting start?","embedding_dimensions":768}' \
+  -d '{"query":"étapes principales GR20","embedding_dimensions":768}' \
   http://127.0.0.1:8000/rag/search
 ```
 
@@ -134,3 +133,21 @@ audit. The database is disposable and uses a generated password. Tests do not
 need cloud credentials; live embedding and agent evaluation remain separate
 checks. Reviewed dependency exceptions are recorded in
 [`docs/dependency-security.md`](docs/dependency-security.md).
+
+## Evaluation and examples
+
+The [Postman collection](docs/postman/RAG-GR20.postman_collection.json) contains
+10 requests covering the six HTTP operations, including four searches at
+variable, 768, 1536 and 3072 dimensions and forced reindexing. These examples
+assume the default 3072-dimensional database. Import its
+[environment](docs/postman/RAG-GR20.postman_environment.json).
+
+On a fresh migrated database, upload `docs/fixtures/gr20.md` using the command
+above or the collection's indexing request before browsing its chunks or
+searching. Successful indexing updates `document_id`; its prefilled value refers
+to a previous local run. DELETE uses the separate `delete_document_id` variable,
+which must be supplied explicitly. Search assertions require nonempty results.
+
+For answer-quality evaluation, see the [evaluation overview](eval/rag/correctness/OVERVIEW.md)
+and [run instructions](eval/rag/correctness/RUN.md). A passing reference-answer
+score does not itself prove retrieval occurred or establish general RAG quality.
