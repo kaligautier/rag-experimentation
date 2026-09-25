@@ -1,0 +1,4 @@
+databaseChangeLog:
+  - include:
+      file: changelog/001-create-rag-tables.yaml
+      relativeToChangelogFile: true
