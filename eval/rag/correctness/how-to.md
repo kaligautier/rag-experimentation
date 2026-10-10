@@ -7,7 +7,10 @@ with a reference answer using Gemini on Vertex AI.
 
 - Input: user question, generated answer, reference answer.
 - Output: `1.0` if the judge considers the answer correct; otherwise `0.0`.
-- Status: passes when the overall score is at least `1.0`.
+- Status: passes when the overall score meets `criterion.threshold` from the
+  evaluation config (`1.0` by default).
+- Actual and expected questions must match and reference answers must be nonempty.
+  Empty generated answers score zero; malformed judge output raises an error.
 - References must be reviewed and annotated by a human; the judge does not
   generate them during evaluation.
 
@@ -37,7 +40,7 @@ Start PostgreSQL (`docker compose up -d postgres`) and ensure `RAG_DB_URL` point
 to that initialized database. The ADK evaluation invokes the tools and database
 directly, so the HTTP API does not need to run during evaluation. For a fresh
 database, first initialize it and index the fixture using the
-[local setup and indexing commands](../../../README.md#local-setup). Then run:
+[local setup commands](../../../README.md#setup-and-checks). Then run:
 
 ```bash
 PYTHONPATH=src:. uv run adk eval src/app/components/agents/root \

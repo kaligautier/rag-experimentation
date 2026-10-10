@@ -1,14 +1,13 @@
 # RAG correctness evaluation
 
-This evaluation asks: **does the agent produce a correct answer using the
-content retrieved through RAG?**
+This evaluation asks: **does the agent answer agree with the supplied reference?**
 
 It runs the agent, compares its answer with a human reference, and produces
 an ADK score.
 
 ```text
 Test question
-  -> Gemini 3.8 Flash agent
+  -> Gemini Flash agent
   -> search_documents
   -> Gemini embedding + PostgreSQL pgvector
   -> document chunks
@@ -21,7 +20,7 @@ Test question
 
 | Role | Default model | Responsibility |
 | --- | --- | --- |
-| RAG agent | `MODEL=gemini-3.8-flash` | Calls tools and writes the answer. |
+| RAG agent | `MODEL=gemini-2.5-flash` | Calls tools and writes the answer. |
 | Evaluation judge | `EVAL_MODEL=gemini-3.1-pro-preview` | Compares the actual answer with the reference. |
 | Embeddings | `RAG_EMBEDDING_MODEL=gemini-embedding-001` | Converts the search query into a vector. |
 
@@ -72,7 +71,7 @@ during judging.
 
 ## Score and threshold
 
-The threshold is `1.0`.
+The configured threshold is `1.0`.
 
 ```text
 score >= 1.0  -> PASSED
@@ -83,8 +82,19 @@ Each question currently receives a binary score. Across multiple questions,
 ADK uses the mean: three correct answers and one incorrect answer yield `0.75`,
 which is `FAILED` at the current threshold.
 
-`CORRECTNESS_THRESHOLD` in `correctness.py` must stay aligned with the threshold
-in `eval_config.json`.
+The metric reads ADK's `criterion.threshold`, populated from `eval_config.json`.
+`CORRECTNESS_THRESHOLD` supplies the `1.0` default when no criterion is supplied.
+Thresholds must be between 0 and 1. ADK clears the deprecated `threshold` field
+before invoking a custom metric, so that field is not used.
+
+Actual and reference questions must match, with nonempty questions and reference
+answers. Malformed pairs fail before any judge call. An empty generated answer
+scores zero without calling the judge. Empty or malformed judge output raises an
+error rather than silently producing a passing score.
+
+Questions, references, and answers are sent as JSON data. The judge is instructed
+to ignore instructions embedded in these fields. This reduces prompt confusion;
+it does not establish resistance to all prompt injection attacks.
 
 ## Questions outside the corpus
 
@@ -118,6 +128,13 @@ PYTHONPATH=src:. uv run adk eval src/app/components/agents/root \
 The previously recorded local GR20 runs showed the agent calling
 `search_documents`, pgvector returning chunks, and the Pro judge considering
 the final answers correct. These are historical results, not a new validation.
+
+A new live retrieval gate must separately inspect the ADK invocation events:
+require a `search_documents` call, a successful tool response containing relevant
+fixture chunks for each in-corpus case, a final answer, and the judge result.
+A green correctness score alone can also result from an answer without retrieval.
+The arithmetic dataset is only a Vertex integration smoke test; the three GR20
+cases are a narrow corpus smoke test, not evidence of general RAG quality.
 
 ## Limitations and future metrics
 
