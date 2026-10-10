@@ -34,8 +34,8 @@ jobs:
         run: uv sync --frozen
       - name: Lint and check formatting
         run: |
-          uv run --no-sync ruff check src/
-          uv run --no-sync ruff format --check src/
+          uv run --no-sync ruff check src/ eval/
+          uv run --no-sync ruff format --check src/ eval/
       - name: Start disposable pgvector database
         run: |
           password=$(openssl rand -hex 24)

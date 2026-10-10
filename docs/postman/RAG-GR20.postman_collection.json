@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "RAG GR20 Collection",
-    "description": "Endpoints utiles pour tester le RAG : santé du serveur, indexation, consultation des documents et chunks, recherche et suppression.\n\n10 requêtes couvrent les 6 opérations HTTP, avec des recherches sémantiques multi-axes GR20 (étapes, équipement, période, durée/statistiques) et une réindexation forcée.\nPour consulter les chunks : dossier 01, GET /rag/documents/{document_id}. document_id est prérempli avec le GR20 local.\nUne indexation réussie met à jour document_id. La suppression utilise delete_document_id, à renseigner explicitement.\nLe corpus est indexé une fois en 3072 dimensions. Grâce aux préfixes MRL, chaque recherche peut choisir entre 128 et 3072 dimensions sans réindexation ; les exemples couvrent 768, 1536 et 3072.\nGuide : docs/postman/README.md.",
+    "description": "Endpoints utiles pour tester le RAG : santé du serveur, indexation, consultation des documents et chunks, recherche et suppression.\n\n10 requêtes couvrent les 6 opérations HTTP, avec des recherches sémantiques multi-axes GR20 (étapes, équipement, période, durée/statistiques) et une réindexation forcée.\nPour consulter les chunks : dossier 01, GET /rag/documents/{document_id}. document_id est prérempli avec le GR20 local.\nUne indexation réussie met à jour document_id. La suppression utilise delete_document_id, à renseigner explicitement.\nLe corpus est indexé une fois en 3072 dimensions. Grâce aux préfixes MRL, chaque recherche peut choisir entre 128 et 3072 dimensions sans réindexation ; les exemples couvrent 768, 1536 et 3072.\nGuide : README.md, section HTTP API and ADK tools. Sur une base neuve, indexer le fichier GR20 avant les recherches ; les assertions exigent au moins un résultat.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -282,6 +282,7 @@
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "if (pm.response.code === 200) {",
                   "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats non vides pour le corpus GR20 indexé\", () => pm.expect(body.results.length).to.be.above(0));",
                   "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
                   "  pm.test(\"Dimension MRL demandée\", () => pm.expect(body.embedding_dimensions).to.eql(Number(pm.variables.get(\"search_embedding_dimensions\"))));",
                   "}"
@@ -330,6 +331,7 @@
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "if (pm.response.code === 200) {",
                   "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats non vides pour le corpus GR20 indexé\", () => pm.expect(body.results.length).to.be.above(0));",
                   "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
                   "  pm.test(\"Recherche MRL 768 dimensions\", () => pm.expect(body.embedding_dimensions).to.eql(768));",
                   "}"
@@ -378,6 +380,7 @@
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "if (pm.response.code === 200) {",
                   "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats non vides pour le corpus GR20 indexé\", () => pm.expect(body.results.length).to.be.above(0));",
                   "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
                   "  pm.test(\"Recherche MRL 1536 dimensions\", () => pm.expect(body.embedding_dimensions).to.eql(1536));",
                   "}"
@@ -426,6 +429,7 @@
                   "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                   "if (pm.response.code === 200) {",
                   "  const body = pm.response.json();",
+                  "  pm.test(\"Résultats non vides pour le corpus GR20 indexé\", () => pm.expect(body.results.length).to.be.above(0));",
                   "  pm.test(\"Résultats classés\", () => { pm.expect(body.result_count).to.eql(body.results.length); for (let i = 1; i < body.results.length; i++) pm.expect(body.results[i].similarity_score).to.be.at.most(body.results[i - 1].similarity_score); });",
                   "  pm.test(\"Embeddings 3072 dimensions\", () => body.results.forEach(result => pm.expect(result.metadata.embedding_dimensions).to.eql(Number(pm.collectionVariables.get(\"embedding_dimensions\")))));",
                   "  pm.test(\"Recherche MRL 3072 dimensions\", () => pm.expect(body.embedding_dimensions).to.eql(3072));",
@@ -477,7 +481,7 @@
   "variable": [
     {
       "key": "BASE_URL",
-      "value": "http://127.0.0.1:7777",
+      "value": "http://127.0.0.1:8000",
       "type": "string",
       "description": "Adresse HTTP du serveur local."
     },
