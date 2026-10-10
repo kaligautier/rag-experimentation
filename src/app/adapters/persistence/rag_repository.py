@@ -216,6 +216,7 @@ class RagRepository(RagRepositoryPort):
                 similarity_score=float(score),
                 hierarchy=(chunk.chunk_metadata or {}).get("hierarchy"),
                 matched_chunk_ids=[chunk.id],
+                document_metadata=document.doc_metadata or {},
                 # Document keys win: hits report the metadata that filters use.
                 metadata={
                     **{

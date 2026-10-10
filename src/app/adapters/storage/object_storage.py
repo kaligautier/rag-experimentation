@@ -7,7 +7,11 @@ from typing import BinaryIO
 
 from app.config.settings import settings
 from app.ports.rag import ObjectStoragePort
-from app.utils.error import ConfigurationError, UnsafeStoragePathError
+from app.utils.error import (
+    ConfigurationError,
+    DocumentLimitError,
+    UnsafeStoragePathError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +54,12 @@ class LocalFileStorageAdapter(ObjectStoragePort):
             )
         return file_path
 
-    async def get(self, key: str) -> bytes:
+    async def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
         """Retrieve a file from storage.
 
         Args:
             key: Storage key (path-like identifier)
+            max_bytes: Optional limit, enforced while reading rather than afterwards
 
         Returns:
             File contents as bytes
@@ -65,7 +70,16 @@ class LocalFileStorageAdapter(ObjectStoragePort):
         file_path = self._get_file_path(key)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {key}")
-        return file_path.read_bytes()
+        if max_bytes is not None and max_bytes < 0:
+            raise ValueError("max_bytes must be non-negative")
+        with file_path.open("rb") as source:
+            content = source.read(-1 if max_bytes is None else max_bytes + 1)
+        if max_bytes is not None and len(content) > max_bytes:
+            raise DocumentLimitError(
+                f"Stored source exceeds the maximum backup size of {max_bytes} bytes",
+                details={"limit_bytes": max_bytes},
+            )
+        return content
 
     async def put(
         self,
