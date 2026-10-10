@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: src
+      GOOGLE_CLOUD_PROJECT: test-project
+      GOOGLE_GENAI_USE_VERTEXAI: 'true'
+      RAG_TEST_LIQUIBASE_CONTAINER: rag-ci-db
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.12.2'
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Lint and check formatting
+        run: |
+          uv run --no-sync ruff check src/
+          uv run --no-sync ruff format --check src/
+      - name: Start disposable pgvector database
+        run: |
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
+          echo "RAG_TEST_DB_URL=postgresql+asyncpg://rag_ci:$password@127.0.0.1:25433/rag_ci" >> "$GITHUB_ENV"
+          docker run --detach --rm --name rag-ci-db \
+            --publish 127.0.0.1:25433:5432 \
+            --env POSTGRES_USER=rag_ci --env POSTGRES_DB=rag_ci \
+            --env POSTGRES_PASSWORD="$password" pgvector/pgvector:pg16
+          for attempt in {1..30}; do
+            if docker exec rag-ci-db pg_isready -U rag_ci -d rag_ci; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+      - name: Unit and PostgreSQL/Liquibase integration tests
+        run: |
+          uv run --no-sync pytest src/test --cov=app --cov-report=term-missing --junitxml=test-results.xml
+          uv run --no-sync python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('test-results.xml').getroot()
+          skipped = root.findall('.//skipped')
+          if skipped:
+              raise SystemExit(f'CI requires all tests to run: {len(skipped)} skipped')
+          PY
+      - name: Build Python package
+        run: uv build
+      - name: Audit installed dependencies
+        # See docs/dependency-security.md for this narrowly scoped exception.
+        run: |
+          site_packages=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+          uvx --from pip-audit==2.10.1 pip-audit --path "$site_packages" --ignore-vuln CVE-2026-81726
+      - name: Build runtime image
+        run: docker build --tag rag-ci:check .
+      - name: Remove disposable database
+        if: always()
+        run: docker rm --force rag-ci-db || true

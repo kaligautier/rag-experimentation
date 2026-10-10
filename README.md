@@ -71,3 +71,21 @@ RAG_TEST_DB_URL=postgresql+asyncpg://rag_user:secret@127.0.0.1:15433/rag_db RAG_
 indexed content is reused; forced indexing retains the document ID.
 `InterrogationService` searches vectors and merges linked parent context.
 Callers own transaction commit/rollback; HTTP and agent wiring come separately.
+
+Use `async with service.indexing_document(...) as result:` or
+`async with service.deleting_document(document_id):` and commit the database
+transaction inside the context. These contexts compensate local source-file
+changes if the operation or commit raises, including cancellation. Forced indexing
+retains the stored source key and provenance. The lower-level `index_document()`
+only compensates errors before it returns. Filesystem and PostgreSQL writes are
+not a distributed transaction: process crashes, ambiguous commit outcomes and
+failed compensation require reconciliation from retained sources and DB state.
+
+## Continuous integration
+
+Every PR and push to `main` runs Ruff, the full unit and real PostgreSQL/Liquibase
+suite (skipped tests fail CI), Python package and Docker builds, and a dependency
+audit. The database is disposable and uses a generated password. Tests do not
+need cloud credentials; live embedding and agent evaluation remain separate
+checks. Reviewed dependency exceptions are recorded in
+[`docs/dependency-security.md`](docs/dependency-security.md).

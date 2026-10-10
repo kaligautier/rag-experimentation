@@ -94,6 +94,11 @@ class SearchHit(BaseModel):
     document_title: str = Field(description="Document title for context")
     chunk_index: int = Field(description="Chunk sequence position")
     metadata: dict = Field(default_factory=dict, description="Chunk/document metadata")
+    document_metadata: dict = Field(
+        default_factory=dict,
+        exclude=True,
+        description="Document provenance kept separate from chunk-specific metadata",
+    )
     hierarchy: ChunkHierarchy | None = None
     matched_chunk_ids: list[UUID] = Field(default_factory=list)
     score_type: Literal["cosine", "max_leaf_cosine"] = "cosine"
