@@ -2,15 +2,11 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
-from sqlalchemy.schema import CreateSchema, DropSchema
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.adapters.persistence.entities import Base
 from app.adapters.persistence.rag_repository import RagRepository
 from app.services.rag.models import Chunk, Document, DocumentStatus
-from test.integration.support import vector
+from test.integration.support import orm_schema, vector
 
 
 @pytest.fixture
@@ -19,39 +15,9 @@ async def repository():
     if not database_url:
         pytest.skip("Set RAG_TEST_DB_URL to run PostgreSQL/pgvector integration tests")
 
-    schema = f"rag_test_{uuid4().hex}"
-    engine = create_async_engine(
-        database_url,
-        poolclass=NullPool,
-        connect_args={"server_settings": {"search_path": f"{schema},public"}},
-        execution_options={"schema_translate_map": {None: schema}},
-    )
-    schema_created = False
-    try:
-        async with engine.begin() as connection:
-            await connection.execute(CreateSchema(schema))
-            await connection.run_sync(
-                lambda sync_connection: Base.metadata.create_all(
-                    sync_connection, checkfirst=False
-                )
-            )
-            assert await connection.scalar(text("SELECT current_schema()")) == schema
-            tables = await connection.scalars(
-                text("SELECT tablename FROM pg_tables WHERE schemaname = :schema"),
-                {"schema": schema},
-            )
-            assert set(tables) == {"rag_documents", "rag_chunks"}
-        schema_created = True
-
+    async with orm_schema(database_url) as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             yield RagRepository(session)
-    finally:
-        try:
-            if schema_created:
-                async with engine.begin() as connection:
-                    await connection.execute(DropSchema(schema, cascade=True))
-        finally:
-            await engine.dispose()
 
 
 @pytest.fixture
