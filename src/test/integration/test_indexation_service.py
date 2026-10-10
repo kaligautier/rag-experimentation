@@ -385,3 +385,63 @@ async def should_refuse_unidentifiable_legacy_source_without_reading_uri(
     assert (
         await stored_document(repository, document.id)
     ).uri == "https://example.test/original"
+
+
+async def should_serialize_source_deletion_with_concurrent_forced_reindex(
+    repository, source_service, monkeypatch, tmp_path
+):
+    service, storage, embeddings = source_service
+    original = await upload(service, repository)
+    key = original.document.metadata["storage_key"]
+    index_holds_row_lock = asyncio.Event()
+    delete_started = asyncio.Event()
+    sessions = async_sessionmaker(repository.session.bind, expire_on_commit=False)
+
+    async with sessions() as index_session, sessions() as delete_session:
+        index_repository = RagRepository(index_session)
+        delete_repository = RagRepository(delete_session)
+        index_service = IndexationService(embeddings, index_repository, index_session)
+        delete_service = IndexationService(
+            embeddings, delete_repository, delete_session
+        )
+        update_document = index_repository.update_document
+        delete_document = delete_repository.delete_document
+
+        async def update_and_hold_row_lock(document):
+            updated = await update_document(document)
+            index_holds_row_lock.set()
+            await delete_started.wait()
+            return updated
+
+        async def signal_delete_attempt(document_id):
+            delete_started.set()
+            await delete_document(document_id)
+
+        monkeypatch.setattr(
+            index_repository, "update_document", update_and_hold_row_lock
+        )
+        monkeypatch.setattr(delete_repository, "delete_document", signal_delete_attempt)
+
+        async def force_reindex():
+            async with index_service.indexing_document(
+                CONTENT,
+                title="Concurrent reindex",
+                mime_type="text/markdown",
+                filename="renamed.md",
+                force=True,
+            ):
+                await index_session.commit()
+
+        async def delete():
+            await index_holds_row_lock.wait()
+            async with delete_service.deleting_document(original.document.id):
+                await delete_session.commit()
+
+        async with asyncio.timeout(30):
+            await asyncio.gather(force_reindex(), delete())
+
+    with pytest.raises(DocumentNotFoundError):
+        await stored_document(repository, original.document.id)
+    with pytest.raises(FileNotFoundError):
+        await storage.get(key)
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]

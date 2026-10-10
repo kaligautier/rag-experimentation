@@ -23,7 +23,7 @@ async def index_document(
     """Index a document into the RAG system.
 
     Args:
-        title: Document title
+        title: Plain Markdown filename ending in .md or .markdown, used as the title
         content: Markdown document text, encoded as UTF-8 before indexing
         mime_type: MIME type of the document
         uri: Optional document URI/path
@@ -44,15 +44,14 @@ async def index_document(
             )
 
             # Index document
-            result = await indexation_service.index_document(
+            async with indexation_service.indexing_document(
                 content=content.encode("utf-8"),
                 title=title,
                 uri=uri,
                 mime_type=mime_type,
                 filename=title,
-            )
-
-            await session.commit()
+            ) as result:
+                await session.commit()
 
             return {
                 "status": "success",

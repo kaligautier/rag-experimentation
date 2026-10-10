@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def rag_lifespan(app: FastAPI):
-    """Initialize the local RAG schema and dispose the pool on shutdown."""
+    """Check the migrated RAG schema and dispose transports on shutdown."""
     try:
         await init_db()
         yield

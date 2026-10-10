@@ -10,7 +10,7 @@ Tests:
 import pytest
 from pydantic import ValidationError
 
-AGENT_MODEL = "gemini-3.8-flash"
+AGENT_MODEL = "gemini-2.5-flash"
 EMBEDDING_MODEL = "gemini-embedding-001"
 
 

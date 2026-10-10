@@ -199,7 +199,7 @@ GOOGLE_CLOUD_LOCATION=global
 ```bash
 APP_NAME="ADK Agent Template"
 AGENT_NAME=template_agent
-MODEL=gemini-3.8-flash
+MODEL=gemini-2.5-flash
 LOG_LEVEL=INFO
 DEBUG=false
 ```
@@ -228,19 +228,19 @@ The RAG experiment indexes UTF-8 Markdown and searches PostgreSQL/pgvector.
 See `README.md` for runnable commands.
 
 ### Runtime
-- API: `just api` on `127.0.0.1:7777`; PostgreSQL: `docker compose up -d postgres`
+- API: `just api` on `127.0.0.1:8000`; PostgreSQL: `docker compose up -d postgres`
   on `127.0.0.1:15433` (avoids the local Homebrew PostgreSQL instance).
 - Embeddings: `gemini-embedding-001` through Vertex AI and Google Application
   Default Credentials, 3072 dimensions by default. The ADK language model is
-  `gemini-3.8-flash` on the global endpoint and is configured separately by
+  `gemini-2.5-flash` by default and is configured separately by
   `MODEL`.
 - `RAG_EMBEDDING_LOCATION` optionally overrides `GOOGLE_CLOUD_LOCATION`.
 - `RETRIEVAL_DOCUMENT` is used for chunks, `RETRIEVAL_QUERY` for questions.
   One text per request, bounded concurrency, no silent truncation or local fallback.
-- Schema initialization runs during the ADK/FastAPI lifespan. Existing tables
-  are not automatically migrated. Liquibase `001` creates `vector(3072)` directly.
-  For this experimental project, recreate an old disposable database and reindex
-  the retained source documents; no upgrade or re-embedding script is included.
+- Run `just migrate` before startup. Liquibase owns the schema and applies the
+  configured `RAG_EMBEDDING_DIMENSIONS`; the ADK/FastAPI lifespan only checks it.
+  A missing schema stops startup. An incompatible vector width blocks embeddings
+  while document browsing remains available. See README for migration constraints.
 
 ### Data flow
 - `MarkdownExtractor` decodes UTF-8 `.md` / `.markdown` files.
@@ -253,7 +253,9 @@ See `README.md` for runnable commands.
 - `RagRepository.search` uses cosine distance `<=>`, descending similarity,
   `top_k`, an optional positive threshold, and document metadata `country_code`.
 - FastAPI sessions use a yield dependency. Agent tools use session context
-  managers; write handlers commit before reporting success.
+  managers; write handlers commit inside the source compensation contexts before
+  reporting success. Upload ingress is bounded before multipart parsing; ADK SSE
+  routes are unaffected by this upload-specific limit.
 
 ### Checks and limitations
 - `just lint`, `just test test/unit`, `just test-integration`.
@@ -262,9 +264,9 @@ See `README.md` for runnable commands.
   Oversized sections are split according to `RAG_CHUNK_SIZE` and
   `RAG_CHUNK_OVERLAP`. Upload byte and chunk-count limits are enforced before
   embeddings; path-bearing filenames are rejected. DELETE removes database
-  documents/chunks but retains original files in local storage.
-- The Liquibase changelog describes the initial schema; do not apply it after
-  SQLAlchemy has already created the same tables.
+  documents/chunks and their stored source, compensating on commit failure.
+- Liquibase owns schema creation. Run `just migrate` before API startup;
+  the application never creates tables with SQLAlchemy.
 
 ## Agent Auto-Detection by ADK
 

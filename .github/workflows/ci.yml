@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONPATH: src
+      # NLTK refuses multiply-linked corpus files; uv defaults to hardlinks on Linux.
+      UV_LINK_MODE: copy
       GOOGLE_CLOUD_PROJECT: test-project
       GOOGLE_GENAI_USE_VERTEXAI: 'true'
       RAG_TEST_LIQUIBASE_CONTAINER: rag-ci-db
