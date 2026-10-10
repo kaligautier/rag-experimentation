@@ -8,7 +8,7 @@ import pytest
 
 from app.adapters.storage import object_storage
 from app.adapters.storage.object_storage import LocalFileStorageAdapter
-from app.utils.error import ConfigurationError
+from app.utils.error import ConfigurationError, DocumentLimitError
 
 
 @pytest.mark.parametrize(
@@ -55,6 +55,41 @@ async def should_read_and_delete_stored_files(tmp_path):
     await storage.delete(key)
     with pytest.raises(FileNotFoundError):
         await storage.get(key)
+
+
+async def should_bound_source_backup_reads_before_loading_the_whole_file(
+    tmp_path, monkeypatch
+):
+    storage = LocalFileStorageAdapter(str(tmp_path))
+    await storage.put("source.md", b"x" * 100)
+    original_open = Path.open
+    reads = []
+
+    class BoundedReader:
+        def __init__(self, reader):
+            self.reader = reader
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.reader.close()
+
+        def read(self, size=-1):
+            reads.append(size)
+            assert 0 < size <= 9
+            return self.reader.read(size)
+
+    monkeypatch.setattr(
+        Path,
+        "open",
+        lambda path, *args, **kwargs: BoundedReader(
+            original_open(path, *args, **kwargs)
+        ),
+    )
+    with pytest.raises(DocumentLimitError):
+        await storage.get("source.md", max_bytes=8)
+    assert reads == [9]
 
 
 async def should_publish_complete_contents_with_an_atomic_replace(

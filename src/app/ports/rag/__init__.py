@@ -91,8 +91,8 @@ class ObjectStoragePort(ABC):
     """Port for object storage."""
 
     @abstractmethod
-    async def get(self, key: str) -> bytes:
-        """Get file from storage."""
+    async def get(self, key: str, *, max_bytes: int | None = None) -> bytes:
+        """Get a file, rejecting oversized content before an unbounded read."""
         pass
 
     @abstractmethod
