@@ -18,6 +18,7 @@ from app.adapters.persistence.database import get_async_session
 from app.adapters.persistence.rag_repository import RagRepository
 from app.adapters.storage.object_storage import validate_storage_filename
 from app.config.settings import settings
+from app.routes.upload_limit import BoundedUploadRoute
 from app.services.rag.indexation_service import IndexationService
 from app.services.rag.interrogation_service import InterrogationService
 from app.services.rag.models import SearchParameters
@@ -28,7 +29,6 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 RagSession = Annotated[AsyncSession, Depends(get_async_session)]
 
 
-@router.post("/index")
 async def index_document(
     session: RagSession,
     file: Annotated[UploadFile, File()],
@@ -52,17 +52,16 @@ async def index_document(
     repository = RagRepository(session)
     indexation_service = IndexationService(embeddings_client, repository, session)
 
-    result = await indexation_service.index_document(
+    async with indexation_service.indexing_document(
         content=content,
         title=title or filename,
         uri=filename,
         mime_type="text/markdown",
         filename=filename,
         force=force,
-    )
-
-    # Commit before reporting success to the caller.
-    await session.commit()
+    ) as result:
+        # Keep commit inside the source compensation context.
+        await session.commit()
 
     return {
         "status": "success",
@@ -73,6 +72,11 @@ async def index_document(
         "leaf_count": result.document.metadata.get("leaf_count", result.chunk_count),
         "embedding_time_ms": result.embedding_time_ms,
     }
+
+
+router.add_api_route(
+    "/index", index_document, methods=["POST"], route_class_override=BoundedUploadRoute
+)
 
 
 @router.post("/search")
@@ -192,8 +196,9 @@ async def get_document(document_id: UUID, session: RagSession):
 async def delete_document(document_id: UUID, session: RagSession):
     """Delete a document."""
     repository = RagRepository(session)
-    await repository.delete_document(document_id)
-    await session.commit()
+    service = IndexationService(EmbeddingsClient(), repository, session)
+    async with service.deleting_document(document_id):
+        await session.commit()
 
     return {
         "status": "success",

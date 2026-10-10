@@ -116,6 +116,10 @@ filtering. HTTP uploads do not expose custom country metadata.
 
 The ADK agent exposes `index_document` (Markdown text and a title ending in
 `.md` or `.markdown`) and `search_documents`. Unsafe filenames are rejected.
+The file limit is `RAG_MAX_UPLOAD_BYTES` (5 MiB by default). Before multipart
+parsing, `/rag/index` buffers at most that limit plus 64 KiB for multipart fields
+and headers; it rejects larger bodies even without `Content-Length`. Other
+routes, including ADK SSE, do not use this upload-specific buffer.
 Errors return stable `error_code`, `message` and `details` fields: 400 for invalid
 documents, 404 for unknown IDs, 409 for unindexed duplicates, 413 for document
 limits, 502 for invalid embedding responses, 503 for incompatible vector schema

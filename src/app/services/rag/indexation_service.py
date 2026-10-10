@@ -256,8 +256,10 @@ class IndexationService:
         """
         document = await self.repository.get_document(document_id)
         storage_key = await self._source_key(document)
+        # Match indexing: hold the row lock before changing source bytes so a
+        # concurrent forced reindex cannot recreate a source after deletion.
+        await self.repository.delete_document(document_id)
         async with self._changing_source(storage_key, None):
-            await self.repository.delete_document(document_id)
             yield
 
     async def _source_key(self, document: Document) -> str:

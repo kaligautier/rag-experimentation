@@ -1,18 +1,20 @@
+import asyncio
 import json
 from datetime import datetime
 from hashlib import sha256
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.llm.embeddings_service import EmbeddingsClient
 from app.adapters.persistence import database
 from app.adapters.persistence.rag_repository import RagRepository
+from app.adapters.storage.object_storage import LocalFileStorageAdapter
 from app.application import register_error_handlers
 from app.components.tools.custom.index_document import index_document as index_tool
 from app.components.tools.custom.search_documents import search_documents as search_tool
@@ -20,6 +22,7 @@ from app.config.settings import settings
 from app.routes import rag
 from app.services.rag import indexation_service
 from app.services.rag.models import Chunk, Document, DocumentStatus
+from app.utils.error import DocumentLimitError, DocumentNotFoundError
 from test.integration.support import vector
 
 
@@ -58,6 +61,19 @@ def rag_runtime(repository, monkeypatch):
             self.objects[key] = content
             return f"memory://{key}"
 
+        async def get(self, key, *, max_bytes=None):
+            if key not in self.objects:
+                raise FileNotFoundError(key)
+            content = self.objects[key]
+            if max_bytes is not None and len(content) > max_bytes:
+                raise DocumentLimitError()
+            return content
+
+        async def delete(self, key):
+            if key not in self.objects:
+                raise FileNotFoundError(key)
+            del self.objects[key]
+
     storage = MemoryStorage()
     monkeypatch.setattr(
         database,
@@ -82,7 +98,8 @@ async def rag_client(rag_runtime):
     app.include_router(rag.router)
     register_error_handlers(app)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://rag.test"
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://rag.test",
     ) as client:
         yield client
 
@@ -175,6 +192,7 @@ async def should_reindex_existing_content_without_changing_document_id(
         content="## Tips",
         embedding=vector(2.0, 0.0),
         chunk_index=0,
+        metadata={"filename": "gr20.md"},
     )
     await repository.create_document(document)
     await repository.add_chunks(document.id, [old_chunk])
@@ -546,6 +564,7 @@ async def should_return_conflict_and_allow_forced_reindex_of_unindexed_document(
         content_hash=sha256(content).hexdigest(),
         status=status,
     )
+    document.metadata["storage_key"] = f"{document.id}/{document.content_hash}/retry.md"
     await repository.create_document(document)
     await repository.session.commit()
     response = await rag_client.post(
@@ -568,3 +587,168 @@ async def should_return_conflict_and_allow_forced_reindex_of_unindexed_document(
     assert response.json()["document_id"] == str(document.id)
     repository.session.expunge_all()
     assert (await repository.get_document(document.id)).status == DocumentStatus.INDEXED
+
+
+@pytest.fixture
+def local_sources(rag_runtime, monkeypatch, tmp_path):
+    storage = LocalFileStorageAdapter(str(tmp_path))
+    monkeypatch.setattr(indexation_service, "get_storage", lambda: storage)
+    return storage, tmp_path
+
+
+async def should_commit_http_upload_and_delete_database_and_source(
+    rag_client, rag_runtime, local_sources
+):
+    storage, root = local_sources
+    content = b"# Durable source\n\nKeep this until deletion."
+    response = await rag_client.post(
+        "/rag/index",
+        data={"title": "Durable"},
+        files={"file": ("durable.md", content, "text/markdown")},
+    )
+    assert response.status_code == 200
+    document_id = UUID(response.json()["document_id"])
+    async with database._async_session_factory() as session:
+        document = await RagRepository(session).get_document(document_id)
+        assert document.chunks
+    assert await storage.get(document.metadata["storage_key"]) == content
+
+    response = await rag_client.delete(f"/rag/documents/{document_id}")
+    assert response.status_code == 200
+    async with database._async_session_factory() as session:
+        with pytest.raises(DocumentNotFoundError):
+            await RagRepository(session).get_document(document_id)
+    assert not [path for path in root.rglob("*") if path.is_file()]
+    assert (await rag_client.delete(f"/rag/documents/{document_id}")).status_code == 404
+    assert rag_runtime[0]["active"] == 0
+
+
+@pytest.mark.parametrize("boundary", ["http", "tool"])
+async def should_rollback_index_and_remove_source_when_commit_fails(
+    repository, rag_client, rag_runtime, local_sources, monkeypatch, boundary
+):
+    _, root = local_sources
+    content = b"# Never committed\n\nRemove the source on failure."
+
+    class FailingCommitSession(AsyncSession):
+        async def commit(self):
+            raise RuntimeError("Commit unavailable")
+
+    monkeypatch.setattr(
+        database,
+        "_async_session_factory",
+        async_sessionmaker(
+            repository.session.bind, class_=FailingCommitSession, expire_on_commit=False
+        ),
+    )
+    if boundary == "http":
+        response = await rag_client.post(
+            "/rag/index",
+            data={"title": "Failed"},
+            files={"file": ("failed.md", content, "text/markdown")},
+        )
+        assert response.status_code == 500
+        result = response.json()
+    else:
+        result = await index_tool(
+            "failed.md", content.decode(), mime_type="text/markdown"
+        )
+        assert result["status"] == "error"
+    assert result["error_code"] == "GENERIC_ERROR"
+    assert "Commit unavailable" not in str(result)
+    async with database._async_session_factory() as session:
+        assert (
+            await RagRepository(session).get_document_by_hash(
+                sha256(content).hexdigest()
+            )
+            is None
+        )
+    assert not [path for path in root.rglob("*") if path.is_file()]
+    assert rag_runtime[0]["active"] == 0
+
+
+async def should_restore_deleted_source_and_rows_when_http_commit_fails(
+    repository, rag_client, rag_runtime, local_sources, monkeypatch
+):
+    storage, _ = local_sources
+    content = b"# Keep committed data\n\nDeletion must roll back."
+    response = await rag_client.post(
+        "/rag/index",
+        data={"title": "Keep"},
+        files={"file": ("keep.md", content, "text/markdown")},
+    )
+    assert response.status_code == 200
+    document_id = UUID(response.json()["document_id"])
+    async with database._async_session_factory() as session:
+        document = await RagRepository(session).get_document(document_id)
+
+    class FailingCommitSession(AsyncSession):
+        async def commit(self):
+            raise RuntimeError("Commit unavailable")
+
+    monkeypatch.setattr(
+        database,
+        "_async_session_factory",
+        async_sessionmaker(
+            repository.session.bind, class_=FailingCommitSession, expire_on_commit=False
+        ),
+    )
+    response = await rag_client.delete(f"/rag/documents/{document_id}")
+    assert response.status_code == 500
+    assert response.json()["error_code"] == "GENERIC_ERROR"
+    async with database._async_session_factory() as session:
+        persisted = await RagRepository(session).get_document(document_id)
+        assert {chunk.id for chunk in persisted.chunks} == {
+            chunk.id for chunk in document.chunks
+        }
+    assert await storage.get(document.metadata["storage_key"]) == content
+    assert rag_runtime[0]["active"] == 0
+
+
+@pytest.mark.parametrize("boundary", ["http", "tool"])
+async def should_compensate_sources_and_release_sessions_when_request_is_cancelled(
+    repository, rag_client, rag_runtime, local_sources, monkeypatch, boundary
+):
+    _, root = local_sources
+    content = b"# Cancelled request\n\nThis must not survive cancellation."
+    committing = asyncio.Event()
+
+    class WaitingCommitSession(AsyncSession):
+        async def commit(self):
+            committing.set()
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        database,
+        "_async_session_factory",
+        async_sessionmaker(
+            repository.session.bind, class_=WaitingCommitSession, expire_on_commit=False
+        ),
+    )
+
+    async def request():
+        if boundary == "http":
+            return await rag_client.post(
+                "/rag/index",
+                data={"title": "Cancelled"},
+                files={"file": ("cancelled.md", content, "text/markdown")},
+            )
+        return await index_tool(
+            "cancelled.md", content.decode(), mime_type="text/markdown"
+        )
+
+    task = asyncio.create_task(request())
+    await asyncio.wait_for(committing.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    async with database._async_session_factory() as session:
+        assert (
+            await RagRepository(session).get_document_by_hash(
+                sha256(content).hexdigest()
+            )
+            is None
+        )
+    assert not [path for path in root.rglob("*") if path.is_file()]
+    assert rag_runtime[0]["active"] == 0
