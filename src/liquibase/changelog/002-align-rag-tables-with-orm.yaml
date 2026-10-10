@@ -1,0 +1,52 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-require-rag-column-values
+      author: system
+      changes:
+        - sql:
+            sql: >-
+              UPDATE rag_documents SET
+              doc_metadata = COALESCE(doc_metadata, '{}'::jsonb),
+              status = COALESCE(status, 'pending'),
+              chunk_count = COALESCE(chunk_count, 0),
+              created_at = COALESCE(created_at, timezone('utc', now())),
+              updated_at = COALESCE(updated_at, timezone('utc', now()))
+              WHERE doc_metadata IS NULL OR status IS NULL OR chunk_count IS NULL
+              OR created_at IS NULL OR updated_at IS NULL;
+              UPDATE rag_chunks SET
+              chunk_metadata = COALESCE(chunk_metadata, '{}'::jsonb),
+              created_at = COALESCE(created_at, timezone('utc', now()))
+              WHERE chunk_metadata IS NULL OR created_at IS NULL;
+        - addNotNullConstraint:
+            tableName: rag_documents
+            columnName: doc_metadata
+        - addNotNullConstraint:
+            tableName: rag_documents
+            columnName: status
+        - addNotNullConstraint:
+            tableName: rag_documents
+            columnName: chunk_count
+        - addNotNullConstraint:
+            tableName: rag_documents
+            columnName: created_at
+        - addNotNullConstraint:
+            tableName: rag_documents
+            columnName: updated_at
+        - addNotNullConstraint:
+            tableName: rag_chunks
+            columnName: chunk_metadata
+        - addNotNullConstraint:
+            tableName: rag_chunks
+            columnName: created_at
+      dbms: postgresql
+      comment: Backfill defaults, then require the values the application always writes
+
+  - changeSet:
+      id: 006-drop-redundant-chunk-document-index
+      author: system
+      changes:
+        - dropIndex:
+            tableName: rag_chunks
+            indexName: ix_rag_chunks_document_id
+      dbms: postgresql
+      comment: ix_rag_chunks_document_index (document_id, chunk_index) already serves document lookups
