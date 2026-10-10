@@ -1,4 +1,4 @@
-"""AsyncSQLAlchemy database configuration with pgvector support."""
+"""Async SQLAlchemy engine and sessions for the Liquibase-managed RAG schema."""
 
 import logging
 from typing import AsyncGenerator
@@ -12,19 +12,27 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config.settings import settings
-from app.utils.error import EmbeddingSchemaMismatchError
+from app.utils.error import ConfigurationError, EmbeddingSchemaMismatchError
 
 logger = logging.getLogger(__name__)
 
 
 async def require_embedding_schema(connection: AsyncConnection | AsyncSession) -> None:
-    """Reject incompatible vectors before contacting the embedding provider."""
+    """Reject missing or incompatible vectors before calling the embedding provider."""
     vector_type = await connection.scalar(
         text(
-            "SELECT format_type(atttypid, atttypmod) FROM pg_attribute "
-            "WHERE attrelid = 'rag_chunks'::regclass AND attname = 'embedding'"
+            "SELECT t.typname || '(' || a.atttypmod || ')' "
+            "FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid "
+            "WHERE a.attrelid = to_regclass('rag_chunks') "
+            "AND a.attname = 'embedding' AND NOT a.attisdropped "
+            "AND to_regclass('rag_documents') IS NOT NULL"
         )
     )
+    if vector_type is None:
+        raise ConfigurationError(
+            "RAG schema not found. Apply the Liquibase migrations with `just migrate`.",
+            details={"tables": ["rag_documents", "rag_chunks"]},
+        )
     expected_type = f"vector({settings.rag.EMBEDDING_DIMENSIONS})"
     if vector_type != expected_type:
         raise EmbeddingSchemaMismatchError(
@@ -33,13 +41,6 @@ async def require_embedding_schema(connection: AsyncConnection | AsyncSession) -
             "before retrying.",
             details={"stored": vector_type, "expected": expected_type},
         )
-
-
-async def setup_pgvector() -> None:
-    """Initialize pgvector extension in PostgreSQL."""
-    async with _async_engine.begin() as connection:
-        await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    logger.info("pgvector extension initialized")
 
 
 def _get_async_engine():
@@ -91,21 +92,15 @@ async def close_db() -> None:
 
 
 async def init_db() -> None:
-    """Initialize database (create tables, extensions, etc.)."""
-    await setup_pgvector()
+    """Check the migrated schema at startup; Liquibase alone creates and alters it.
 
-    # Create all tables from ORM entities
-    from app.adapters.persistence.entities import Base
-
-    async with _async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Additive compatibility migration: parents carry text and links, no vector.
-        await conn.execute(
-            text("ALTER TABLE rag_chunks ALTER COLUMN embedding DROP NOT NULL")
-        )
+    Missing tables stop startup. Incompatible vectors only block embedding
+    operations, so stored documents remain browsable until they are migrated.
+    """
+    async with _async_engine.connect() as connection:
         try:
-            await require_embedding_schema(conn)
+            await require_embedding_schema(connection)
         except EmbeddingSchemaMismatchError as error:
             logger.warning("%s Document browsing remains available.", error)
 
-    logger.info("Database initialization complete")
+    logger.info("Database schema check complete")

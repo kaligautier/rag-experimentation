@@ -25,7 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 class RagRepository(RagRepositoryPort):
-    """SQLAlchemy-based RAG repository."""
+    """SQLAlchemy-based RAG repository.
+
+    Embeddings are write-only: reads return chunks with ``embedding=None``.
+    """
 
     def __init__(self, session: AsyncSession):
         """Initialize repository with async session."""
@@ -47,7 +50,7 @@ class RagRepository(RagRepositoryPort):
         )
         self.session.add(entity)
         await self.session.flush()  # Flush to get any DB-generated values
-        logger.info(f"Created document: {document.id}")
+        logger.info("Created document: %s", document.id)
         return document
 
     async def get_document(self, document_id: UUID) -> Document:
@@ -56,6 +59,8 @@ class RagRepository(RagRepositoryPort):
             select(RagDocumentEntity)
             .where(RagDocumentEntity.id == document_id)
             .options(selectinload(RagDocumentEntity.chunks))
+            # Bulk chunk replacement must refresh already-loaded collections.
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         entity = result.scalar_one_or_none()
@@ -66,24 +71,23 @@ class RagRepository(RagRepositoryPort):
                 details={"document_id": str(document_id)},
             )
 
-        return self._entity_to_model(entity)
+        return self._entity_to_model(entity, entity.chunks)
 
     async def list_documents(
         self, limit: int = 100, offset: int = 0
     ) -> tuple[list[Document], int]:
-        """List documents with pagination."""
+        """List documents with pagination, without their chunks."""
         # Count total
         count_stmt = select(func.count(RagDocumentEntity.id))
         count_result = await self.session.execute(count_stmt)
         total = count_result.scalar() or 0
 
-        # Fetch paginated
+        # Fetch paginated; the id tie-breaker keeps pages stable.
         stmt = (
             select(RagDocumentEntity)
-            .order_by(desc(RagDocumentEntity.created_at))
+            .order_by(desc(RagDocumentEntity.created_at), RagDocumentEntity.id)
             .limit(limit)
             .offset(offset)
-            .options(selectinload(RagDocumentEntity.chunks))
         )
         result = await self.session.execute(stmt)
         entities = result.scalars().all()
@@ -92,17 +96,17 @@ class RagRepository(RagRepositoryPort):
         return documents, total
 
     async def get_document_by_hash(self, content_hash: str) -> Document | None:
-        """Find a previously indexed document without re-embedding its content."""
+        """Find a previously indexed document, without its chunks."""
         result = await self.session.execute(
-            select(RagDocumentEntity)
-            .where(RagDocumentEntity.content_hash == content_hash)
-            .options(selectinload(RagDocumentEntity.chunks))
+            select(RagDocumentEntity).where(
+                RagDocumentEntity.content_hash == content_hash
+            )
         )
         entity = result.scalar_one_or_none()
         return self._entity_to_model(entity) if entity is not None else None
 
     async def update_document(self, document: Document) -> Document:
-        """Update document metadata."""
+        """Update document metadata and return it with the stored timestamp."""
         entity = await self.session.get(RagDocumentEntity, document.id)
         if not entity:
             raise DocumentNotFoundError(
@@ -116,11 +120,11 @@ class RagRepository(RagRepositoryPort):
         entity.chunk_count = document.chunk_count
 
         await self.session.flush()
-        logger.info(f"Updated document: {document.id}")
-        return document
+        logger.info("Updated document: %s", document.id)
+        return document.model_copy(update={"updated_at": entity.updated_at})
 
     async def delete_document(self, document_id: UUID) -> None:
-        """Delete document and chunks."""
+        """Delete document; the foreign key cascade deletes its chunks."""
         entity = await self.session.get(RagDocumentEntity, document_id)
         if not entity:
             raise DocumentNotFoundError(
@@ -130,14 +134,15 @@ class RagRepository(RagRepositoryPort):
 
         await self.session.delete(entity)
         await self.session.flush()
-        logger.info(f"Deleted document: {document_id}")
+        logger.info("Deleted document: %s", document_id)
 
     async def add_chunks(self, document_id: UUID, chunks: Sequence[Chunk]) -> None:
         """Add chunks to document."""
+        self._require_owner(document_id, chunks)
         chunk_entities = [
             RagChunkEntity(
                 id=chunk.id,
-                document_id=chunk.document_id,
+                document_id=document_id,
                 content=chunk.content,
                 embedding=chunk.embedding,
                 chunk_index=chunk.chunk_index,
@@ -155,9 +160,10 @@ class RagRepository(RagRepositoryPort):
         ]
         self.session.add_all(chunk_entities)
         await self.session.flush()
-        logger.info(f"Added {len(chunk_entities)} chunks to document {document_id}")
+        logger.info("Added %s chunks to document %s", len(chunk_entities), document_id)
 
     async def get_chunks(self, chunk_ids: Sequence[UUID]) -> list[Chunk]:
+        """Load linked parent contexts in a batch."""
         if not chunk_ids:
             return []
         entities = await self.session.scalars(
@@ -210,13 +216,14 @@ class RagRepository(RagRepositoryPort):
                 similarity_score=float(score),
                 hierarchy=(chunk.chunk_metadata or {}).get("hierarchy"),
                 matched_chunk_ids=[chunk.id],
+                # Document keys win: hits report the metadata that filters use.
                 metadata={
-                    **(document.doc_metadata or {}),
                     **{
                         k: v
                         for k, v in (chunk.chunk_metadata or {}).items()
                         if k != "hierarchy"
                     },
+                    **(document.doc_metadata or {}),
                 },
             )
             for chunk, document, score in result.all()
@@ -224,10 +231,22 @@ class RagRepository(RagRepositoryPort):
 
     async def replace_chunks(self, document_id: UUID, chunks: Sequence[Chunk]) -> None:
         """Replace indexed sections atomically when the caller commits."""
+        self._require_owner(document_id, chunks)
         await self.session.execute(
             delete(RagChunkEntity).where(RagChunkEntity.document_id == document_id)
         )
         await self.add_chunks(document_id, chunks)
+
+    @staticmethod
+    def _require_owner(document_id: UUID, chunks: Sequence[Chunk]) -> None:
+        """Refuse chunks built for another document before writing anything."""
+        foreign = sorted(
+            {str(chunk.document_id) for chunk in chunks} - {str(document_id)}
+        )
+        if foreign:
+            raise ValueError(
+                f"Chunks for document {document_id} reference documents {foreign}"
+            )
 
     @staticmethod
     def _chunk_to_model(chunk: RagChunkEntity) -> Chunk:
@@ -237,17 +256,20 @@ class RagRepository(RagRepositoryPort):
             id=chunk.id,
             document_id=chunk.document_id,
             content=chunk.content,
-            embedding=chunk.embedding,
             chunk_index=chunk.chunk_index,
             metadata=metadata,
             hierarchy=ChunkHierarchy.model_validate(hierarchy) if hierarchy else None,
             created_at=chunk.created_at,
         )
 
-    def _entity_to_model(self, entity: RagDocumentEntity) -> Document:
-        """Convert ORM entity to domain model."""
-        chunks = [self._chunk_to_model(chunk) for chunk in entity.chunks or []]
-        chunks.sort(key=lambda chunk: chunk.chunk_index)
+    def _entity_to_model(
+        self, entity: RagDocumentEntity, chunks: Sequence[RagChunkEntity] = ()
+    ) -> Document:
+        """Convert ORM entity to domain model with the chunks the caller loaded."""
+        models = sorted(
+            (self._chunk_to_model(chunk) for chunk in chunks),
+            key=lambda chunk: chunk.chunk_index,
+        )
         return Document(
             id=entity.id,
             title=entity.title,
@@ -259,5 +281,5 @@ class RagRepository(RagRepositoryPort):
             chunk_count=entity.chunk_count,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
-            chunks=chunks,
+            chunks=models,
         )

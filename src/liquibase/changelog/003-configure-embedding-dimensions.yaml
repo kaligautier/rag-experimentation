@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 007-configure-embedding-dimensions
+      author: system
+      preConditions:
+        - onFail: HALT
+        - onFailMessage: Choose 128-3072 dimensions and reindex incompatible vectors in a separate database; existing vectors must not be resized.
+        - sqlCheck:
+            expectedResult: "1"
+            sql: SELECT CASE WHEN ${rag.embedding.dimensions} BETWEEN 128 AND 3072 THEN 1 ELSE 0 END
+        - sqlCheck:
+            expectedResult: "0"
+            sql: SELECT count(*) FROM rag_chunks WHERE embedding IS NOT NULL AND vector_dims(embedding) <> ${rag.embedding.dimensions}
+      changes:
+        - modifyDataType:
+            tableName: rag_chunks
+            columnName: embedding
+            newDataType: vector(${rag.embedding.dimensions})
+      dbms: postgresql
+      comment: Provision the configured width without editing historical changesets or truncating stored vectors

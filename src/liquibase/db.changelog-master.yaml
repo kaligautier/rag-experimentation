@@ -1,4 +1,13 @@
 databaseChangeLog:
+  - property:
+      name: rag.embedding.dimensions
+      value: "3072"
   - include:
       file: changelog/001-create-rag-tables.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: changelog/002-align-rag-tables-with-orm.yaml
+      relativeToChangelogFile: true
+  - include:
+      file: changelog/003-configure-embedding-dimensions.yaml
       relativeToChangelogFile: true

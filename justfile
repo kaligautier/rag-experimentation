@@ -19,6 +19,11 @@ install: _check-uv
     echo "Installing dependencies with UV..."
     cd {{ source_directory() }} && uv sync
 
+# Apply Liquibase migrations to the docker-compose database
+[group('setup')]
+migrate:
+    cd {{ source_directory() }} && docker compose run --rm liquibase
+
 # Launch agent as API server
 [group('run')]
 api port="8000": _check-uv

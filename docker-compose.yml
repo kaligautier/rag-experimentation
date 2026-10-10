@@ -16,6 +16,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # One-shot: applies src/liquibase on every `docker compose up`, then exits.
+  liquibase:
+    image: liquibase/liquibase:4.33
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./src/liquibase:/liquibase/changelog:ro
+    working_dir: /liquibase/changelog
+    command:
+      - --url=jdbc:postgresql://postgres:5432/rag_db
+      - --username=rag_user
+      - --password=secret
+      - --changelog-file=db.changelog-master.yaml
+      - update
+      - -Drag.embedding.dimensions=${RAG_EMBEDDING_DIMENSIONS:-3072}
+
 volumes:
   postgres_data:
     driver: local
