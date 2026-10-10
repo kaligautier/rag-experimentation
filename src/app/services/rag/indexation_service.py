@@ -1,10 +1,12 @@
 """Document indexation service for RAG."""
 
+import asyncio
 import hashlib
 import logging
 import time
-from typing import BinaryIO
-from uuid import uuid4
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, BinaryIO
+from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,7 @@ from app.config.settings import settings
 from app.ports.rag import RagRepositoryPort
 from app.services.rag.models import Chunk, Document, DocumentStatus, IndexationResult
 from app.utils.error import (
+    ConfigurationError,
     DocumentLimitError,
     DocumentNotIndexedError,
     EmptyDocumentError,
@@ -56,7 +59,34 @@ class IndexationService:
         filename: str = "",
         force: bool = False,
     ) -> IndexationResult:
-        """Index a document (extract → chunk → embed → persist).
+        """Stage indexing; the caller owns commit and rollback.
+
+        Use ``indexing_document`` around the caller's commit to compensate source
+        writes if that commit fails. This lower-level method only compensates
+        failures occurring before it returns.
+        """
+        async with self.indexing_document(
+            content, title, uri, mime_type, filename, force
+        ) as result:
+            return result
+
+    @asynccontextmanager
+    async def indexing_document(
+        self,
+        content: bytes | BinaryIO,
+        title: str,
+        uri: str = "",
+        mime_type: str = "application/octet-stream",
+        filename: str = "",
+        force: bool = False,
+    ) -> AsyncIterator[IndexationResult]:
+        """Index and compensate source changes if the caller's commit fails.
+
+        Commit inside this block; rollback remains the caller's responsibility.
+        Exceptions and cancellation restore the previous source, or remove a new
+        source. This is local compensation, not crash/distributed atomicity:
+        failed restoration or an ambiguous database commit needs manual recovery.
+        A failing storage restore is propagated, chained to the original failure.
 
         Args:
             content: Document content (bytes or file-like)
@@ -98,14 +128,32 @@ class IndexationService:
                         "status": existing.status.value,
                     }
                 )
-            return IndexationResult(
+            yield IndexationResult(
                 document=existing,
                 created=False,
                 chunk_count=existing.chunk_count,
             )
+            return
+
+        # A force upload rebuilds the index but retains the original source's
+        # location and media type, even when the incoming display name changes.
+        doc_id = existing.id if existing is not None else uuid4()
+        storage_key = (
+            await self._source_key(existing)
+            if existing is not None
+            else self.storage.generate_key(str(doc_id), content_hash, filename)
+        )
+        if existing is not None:
+            uri = existing.uri
+            mime_type = existing.mime_type
+            filename = filename or storage_key.rsplit("/", 1)[-1]
+            if storage_key == f"{doc_id}/{content_hash}" and not filename.endswith(
+                (".md", ".markdown")
+            ):
+                filename = "source.md"
 
         # Extract text
-        extractor = await get_extractor(mime_type, filename)
+        extractor = get_extractor(mime_type, filename)
         logger.info(f"Using {extractor.__class__.__name__} for extraction")
         raw_text = await extractor.extract(content_bytes)
         logger.info(f"Extracted {len(raw_text)} characters")
@@ -137,11 +185,10 @@ class IndexationService:
         logger.info(f"Embeddings completed in {embedding_time_ms:.0f}ms")
 
         # Create domain models
-        doc_id = existing.id if existing is not None else uuid4()
         document = Document(
             id=doc_id,
             title=title,
-            uri=uri or f"file://{filename}",
+            uri=existing.uri if existing is not None else uri or f"file://{filename}",
             mime_type=mime_type,
             content_hash=content_hash,
             status=DocumentStatus.INDEXED,
@@ -152,6 +199,7 @@ class IndexationService:
                 "embedding_dimensions": settings.rag.EMBEDDING_DIMENSIONS,
                 "hierarchy_version": 1,
                 "leaf_count": len(leaves),
+                "storage_key": storage_key,
             },
             **({"created_at": existing.created_at} if existing is not None else {}),
         )
@@ -174,23 +222,19 @@ class IndexationService:
             await self.repository.create_document(document)
             await self.repository.add_chunks(doc_id, chunks)
         else:
-            await self.repository.update_document(document)
+            document = await self.repository.update_document(document)
             await self.repository.replace_chunks(doc_id, chunks)
 
-        # Store original content
-        storage_key = self.storage.generate_key(str(doc_id), content_hash, filename)
-        await self.storage.put(storage_key, content_bytes)
-        logger.info(f"Stored original content at: {storage_key}")
-
-        total_time = time.time() - start_time
-        logger.info(f"Document indexation completed in {total_time:.2f}s")
-
-        return IndexationResult(
-            document=document,
-            created=existing is None,
-            chunk_count=len(chunks),
-            embedding_time_ms=embedding_time_ms,
-        )
+        async with self._changing_source(storage_key, content_bytes):
+            logger.info(
+                "Document indexation completed in %.2fs", time.time() - start_time
+            )
+            yield IndexationResult(
+                document=document,
+                created=existing is None,
+                chunk_count=len(chunks),
+                embedding_time_ms=embedding_time_ms,
+            )
 
     async def get_document(self, document_id) -> Document:
         """Get document with chunks."""
@@ -202,6 +246,95 @@ class IndexationService:
         """List documents."""
         return await self.repository.list_documents(limit, offset)
 
-    async def delete_document(self, document_id) -> None:
-        """Delete document."""
-        await self.repository.delete_document(document_id)
+    @asynccontextmanager
+    async def deleting_document(self, document_id: UUID) -> AsyncIterator[None]:
+        """Remove rows and source; the caller must commit inside this block.
+
+        Failure/cancellation restores the source while caller rollback restores
+        the rows. Missing sources are harmless. As for indexing, compensation
+        cannot guarantee recovery from process crashes or failed storage writes.
+        """
+        document = await self.repository.get_document(document_id)
+        storage_key = await self._source_key(document)
+        async with self._changing_source(storage_key, None):
+            await self.repository.delete_document(document_id)
+            yield
+
+    async def _source_key(self, document: Document) -> str:
+        """Resolve a source only from its stored key or unambiguous chunk metadata.
+
+        Legacy documents without either need manual source reconciliation; their
+        URI is never a filesystem authority. Historical orphan copies created by
+        older force-index behavior cannot be discovered safely from these fields.
+        """
+        prefix = f"{document.id}/{document.content_hash}"
+        key = document.metadata.get("storage_key")
+        if isinstance(key, str):
+            if key == prefix:
+                return key
+            if key.startswith(prefix + "/"):
+                filename = validate_storage_filename(key[len(prefix) + 1 :])
+                if filename:
+                    return key
+            raise ConfigurationError("Document source key is invalid")
+
+        if not document.chunks:
+            document = await self.repository.get_document(document.id)
+        filenames = {
+            chunk.metadata["filename"]
+            for chunk in document.chunks
+            if isinstance(chunk.metadata.get("filename"), str)
+        }
+        if len(filenames) != 1:
+            raise ConfigurationError(
+                "Legacy document source cannot be identified; reconcile its source key",
+                details={"document_id": str(document.id)},
+            )
+        filename = validate_storage_filename(filenames.pop())
+        return self.storage.generate_key(
+            str(document.id), document.content_hash, filename
+        )
+
+    @asynccontextmanager
+    async def _changing_source(
+        self, key: str, content: bytes | None
+    ) -> AsyncIterator[None]:
+        """Compensate one bounded source change, including caller cancellation."""
+        try:
+            original = await self.storage.get(
+                key, max_bytes=settings.rag.MAX_UPLOAD_BYTES
+            )
+        except FileNotFoundError:
+            original = None
+
+        if original == content:
+            # Same-hash force indexing does not need to rewrite unchanged bytes.
+            yield
+            return
+
+        async def restore():
+            if original is not None:
+                await self.storage.put(key, original)
+            else:
+                try:
+                    await self.storage.delete(key)
+                except FileNotFoundError:
+                    pass
+
+        try:
+            if content is None:
+                await self.storage.delete(key)
+            else:
+                await self.storage.put(key, content)
+            yield
+        except BaseException:
+            # Shield cleanup and wait for it even if a second cancellation arrives.
+            # Never leave a background restore running after the session exits.
+            restoration = asyncio.create_task(restore())
+            while not restoration.done():
+                try:
+                    await asyncio.shield(restoration)
+                except asyncio.CancelledError:
+                    continue
+            restoration.result()
+            raise
