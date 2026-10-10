@@ -1,0 +1,180 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-enable-pgvector-extension
+      author: system
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS vector;
+      dbms: postgresql
+      comment: Enable pgvector before creating vector columns
+
+  - changeSet:
+      id: 001-create-rag-documents-table
+      author: system
+      changes:
+        - createTable:
+            tableName: rag_documents
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: title
+                  type: VARCHAR(500)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: uri
+                  type: VARCHAR(1000)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: mime_type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: content_hash
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: doc_metadata
+                  type: JSONB
+                  defaultValue: '{}'
+              - column:
+                  name: status
+                  type: VARCHAR(20)
+                  defaultValue: 'pending'
+              - column:
+                  name: chunk_count
+                  type: INT
+                  defaultValue: '0'
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: 'NOW()'
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  defaultValueComputed: 'NOW()'
+      dbms: postgresql
+      comment: Create rag_documents table for storing indexed documents
+
+  - changeSet:
+      id: 001-create-rag-documents-indexes
+      author: system
+      changes:
+        - createIndex:
+            tableName: rag_documents
+            indexName: ix_rag_documents_content_hash
+            unique: true
+            columns:
+              - column:
+                  name: content_hash
+        - createIndex:
+            tableName: rag_documents
+            indexName: ix_rag_documents_status
+            columns:
+              - column:
+                  name: status
+        - createIndex:
+            tableName: rag_documents
+            indexName: ix_rag_documents_created_at
+            columns:
+              - column:
+                  name: created_at
+      dbms: postgresql
+      comment: Create indexes on rag_documents table
+
+  - changeSet:
+      id: 002-create-rag-chunks-table
+      author: system
+      changes:
+        - createTable:
+            tableName: rag_chunks
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: document_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+              - column:
+                  name: content
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: embedding
+                  type: vector(3072)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: chunk_index
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: chunk_metadata
+                  type: JSONB
+                  defaultValue: '{}'
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: 'NOW()'
+      dbms: postgresql
+      comment: Create rag_chunks table for storing document chunks with embeddings
+
+  - changeSet:
+      id: 002-create-rag-chunks-foreign-key
+      author: system
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_rag_chunks_document_id
+            baseTableName: rag_chunks
+            baseColumnNames: document_id
+            referencedTableName: rag_documents
+            referencedColumnNames: id
+            onDelete: CASCADE
+      dbms: postgresql
+      comment: Add foreign key from rag_chunks to rag_documents
+
+  - changeSet:
+      id: 002-create-rag-chunks-indexes
+      author: system
+      changes:
+        - createIndex:
+            tableName: rag_chunks
+            indexName: ix_rag_chunks_document_id
+            columns:
+              - column:
+                  name: document_id
+        - createIndex:
+            tableName: rag_chunks
+            indexName: ix_rag_chunks_document_index
+            columns:
+              - column:
+                  name: document_id
+              - column:
+                  name: chunk_index
+      dbms: postgresql
+      comment: Create indexes on rag_chunks table
+
+  - changeSet:
+      id: 004-allow-parent-contexts-without-vectors
+      author: system
+      changes:
+        - dropNotNullConstraint:
+            tableName: rag_chunks
+            columnName: embedding
+      dbms: postgresql
+      comment: Parent contexts use chunk_metadata.hierarchy links and no embedding
