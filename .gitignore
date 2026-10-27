@@ -17,3 +17,6 @@ htmlcov/
 
 # Local ADK sessions and artifacts
 .adk/
+
+# Local Promptfoo reports contain questions, answers and retrieved documents.
+.promptfoo/
