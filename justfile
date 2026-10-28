@@ -4,6 +4,8 @@
 # Load environment variables from .env file
 set dotenv-load
 
+promptfoo-version := "0.125.1"
+
 # Internal helper to check UV is available
 _check-uv:
     #!/usr/bin/env bash
@@ -32,16 +34,16 @@ api port="8000": _check-uv
 # Format code with ruff
 [group('quality')]
 format: _check-uv
-    cd {{ source_directory() }} && uv run ruff format src/
+    cd {{ source_directory() }} && uv run ruff format src/ eval/
 
 [group('quality')]
 sort-imports: _check-uv
-    cd {{ source_directory() }} && uv run ruff check --select I --fix src/
+    cd {{ source_directory() }} && uv run ruff check --select I --fix src/ eval/
 
 # Lint code with ruff
 [group('quality')]
 lint: _check-uv
-    cd {{ source_directory() }} && uv run ruff check src/
+    cd {{ source_directory() }} && uv run ruff check src/ eval/
 
 # Run full test suite with coverage
 [group('quality')]
@@ -70,3 +72,51 @@ run:
         -e GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT}" \
         -e GOOGLE_CLOUD_LOCATION="${GOOGLE_CLOUD_LOCATION}" \
         adk-agent-template:latest local
+
+# Local Promptfoo scaffold; no API server is needed for the Python provider.
+[group('eval')]
+eval-check:
+    just _promptfoo validate config -c eval/rag/promptfoo/config.cjs
+
+[group('eval')]
+eval-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{ source_directory() }}
+    status=0
+    just _promptfoo eval -c eval/rag/promptfoo/tests/config.cjs --no-cache -o .promptfoo/smoke.json || status=$?
+    # Promptfoo exits 100 for the intentionally failing fixture cases.
+    if [[ "$status" != 100 ]]; then
+      echo "Expected an evaluation failure exit (100), got $status" >&2
+      exit 1
+    fi
+    node eval/rag/promptfoo/tests/check-results.cjs .promptfoo/smoke.json
+
+[group('eval')]
+eval-rag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT in .env}"
+    : "${GOOGLE_CLOUD_LOCATION:?Set GOOGLE_CLOUD_LOCATION in .env}"
+    : "${RAG_EVAL_JUDGE_MODEL:?Set a Vertex judge model in .env}"
+    if [[ "$RAG_EVAL_JUDGE_MODEL" == "${MODEL:-gemini-2.5-flash}" ]]; then
+      echo "Choose a judge model different from the agent model" >&2
+      exit 2
+    fi
+    just _promptfoo eval -c eval/rag/promptfoo/config.cjs --no-cache -o .promptfoo/rag.json
+
+[group('eval')]
+eval-view:
+    just _promptfoo view --host 127.0.0.1 --no
+
+_promptfoo +args: _check-uv
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{ source_directory() }}
+    mkdir -p .promptfoo
+    export PROMPTFOO_CONFIG_DIR="{{ source_directory() }}/.promptfoo"
+    export PROMPTFOO_DISABLE_TELEMETRY=1 PROMPTFOO_DISABLE_UPDATE=1
+    export PROMPTFOO_PYTHON="{{ source_directory() }}/.venv/bin/python"
+    export PYTHONPATH="{{ source_directory() }}/src:{{ source_directory() }}"
+    export LOG_LEVEL=error
+    uv run --frozen npx --yes promptfoo@{{promptfoo-version}} {{args}}

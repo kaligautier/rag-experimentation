@@ -151,3 +151,9 @@ which must be supplied explicitly. Search assertions require nonempty results.
 For answer-quality evaluation, see the [evaluation overview](eval/rag/correctness/OVERVIEW.md)
 and [run instructions](eval/rag/correctness/RUN.md). A passing reference-answer
 score does not itself prove retrieval occurred or establish general RAG quality.
+
+The [local Promptfoo scaffold](eval/rag/promptfoo/README.md) evaluates correctness,
+relevance, groundedness and retrieval relevance following the LangSmith RAG
+tutorial. Start with `just eval-check` and `just eval-smoke` (no cloud calls),
+then `just eval-rag` against a configured, indexed local database. Inspect results
+with `just eval-view`. Live evaluation is manual and is not run by CI.
