@@ -70,6 +70,8 @@ RAG_TEST_DB_URL=postgresql+asyncpg://rag_user:secret@127.0.0.1:15433/rag_db RAG_
 
 ## RAG services
 
+See the [RAG implementation overview](docs/RAG.md) for the indexing and retrieval flow.
+
 `IndexationService` extracts, chunks, embeds and persists documents. Identical
 indexed content is reused; forced indexing retains the document ID.
 `InterrogationService` searches vectors and merges linked parent context.
