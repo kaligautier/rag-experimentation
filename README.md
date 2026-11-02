@@ -1,5 +1,7 @@
 # RAG experimentation
 
+[Evaluation](EVAL.md)
+
 Local Markdown retrieval using FastAPI, Google ADK, PostgreSQL/pgvector and
 Vertex AI embeddings. HTTP endpoints and agent tools share the same RAG services.
 
