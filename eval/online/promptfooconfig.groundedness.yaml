@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+# https://www.promptfoo.dev/docs/guides/evaluate-rag/
+description: RAG - groundedness (native context-faithfulness)
+prompts:
+- '{{query}}'
+providers:
+- id: file://../provider.py
+  label: rag-agent-direct
+  config:
+    timeout: 180000
+    otlp_endpoint: http://localhost:4318
+sharing: false
+evaluateOptions:
+  maxConcurrency: 1
+defaultTest:
+  metadata:
+    tracingEnabled: true
+  options:
+    provider:
+      text:
+        id: vertex:{{env.PROMPTFOO_GRADER_MODEL}}
+        config:
+          temperature: 0
+  assert:
+  - type: trace-span-count
+    value:
+      pattern: promptfoo_google_adk_provider
+      min: 1
+      max: 1
+  - type: trajectory:tool-used
+    value: search_documents
+  - type: trace-error-spans
+    value:
+      max_count: 0
+  - type: regex
+    value: '\S'
+  - type: context-faithfulness
+    metric: groundedness
+    contextTransform: context.metadata.documents
+    threshold: 1
+tests: file://cases.yaml
+tracing:
+  enabled: true
+  otlp:
+    http:
+      enabled: true
+      port: 4318
+      acceptFormats: [json, protobuf]
