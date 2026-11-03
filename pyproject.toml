@@ -69,6 +69,7 @@ env = [
 
 [dependency-groups]
 dev = [
+    "opentelemetry-exporter-otlp-proto-http==1.42.1",
     "faker>=37.4.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",

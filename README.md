@@ -155,3 +155,112 @@ which must be supplied explicitly. Search assertions require nonempty results.
 For answer-quality evaluation, see the [evaluation overview](eval/rag/correctness/OVERVIEW.md)
 and [run instructions](eval/rag/correctness/RUN.md). A passing reference-answer
 score does not itself prove retrieval occurred or establish general RAG quality.
+
+### Promptfoo RAG evaluation
+
+Four independent configurations in `eval/online/` apply the native assertions from
+the [Promptfoo RAG guide](https://www.promptfoo.dev/docs/guides/evaluate-rag/).
+Each loads the same two GR20 questions from `cases.yaml` and checks that the answer
+is nonblank alongside its RAG metric. No custom grading prompts or scorers
+are used.
+
+| Configuration | Native assertion | Initial threshold | Command |
+| --- | --- | --- | --- |
+| `promptfooconfig.correctness.yaml` | `factuality` | 1 | `just eval-correctness` |
+| `promptfooconfig.relevance.yaml` | `answer-relevance` | 0.7 | `just eval-relevance` |
+| `promptfooconfig.groundedness.yaml` | `context-faithfulness` | 1 | `just eval-groundedness` |
+| `promptfooconfig.retrieval_relevance.yaml` | `context-relevance` | 0.5 | `just eval-retrieval-relevance` |
+
+These are starting thresholds, not calibrated quality gates. Expand the two-case
+dataset and review judge explanations before using the scores to block a release.
+The [LangSmith tutorial](https://docs.langchain.com/langsmith/evaluate-rag-tutorial)
+inspired the four axes, but its binary rubrics are no longer the scoring method:
+
+- [Factuality](https://www.promptfoo.dev/docs/configuration/expected-outputs/model-graded/factuality/)
+  compares the answer with the reference. Only this assertion uses `reference`.
+- [Answer relevance](https://www.promptfoo.dev/docs/configuration/expected-outputs/model-graded/answer-relevance/)
+  generates three candidate questions from the answer and compares them with the
+  input using embeddings. It needs both a text judge and an embedding provider.
+- [Context faithfulness](https://www.promptfoo.dev/docs/configuration/expected-outputs/model-graded/context-faithfulness/)
+  extracts factual claims and checks their support in the actual retrieved passages.
+  The threshold of 1 requires all extracted claims to be supported.
+- [Context relevance](https://www.promptfoo.dev/docs/configuration/expected-outputs/model-graded/context-relevance/)
+  measures the fraction of context minimally needed to answer the question. It is
+  stricter than the old any-related-passage rubric; supporting detail can lower the
+  score even when the answer is present. It is not retrieval recall.
+
+The single [`eval/provider.py`](eval/provider.py) adapter follows the
+[direct Google ADK integration](https://www.promptfoo.dev/docs/guides/evaluate-google-adk/):
+it imports the application's `root_agent`, runs one turn with `Runner` and a fresh
+in-memory session, and returns the final answer as plain `output`. Actual
+`search_documents` passages and search calls are extracted from native ADK tool
+spans into `metadata`, alongside the event count;
+token usage is reported separately. It does not grade answers or use the reference.
+The two context assertions use the documented extraction hook:
+`contextTransform: context.metadata.documents`. This inline JavaScript expression
+only selects the passages; there is no JavaScript file or custom Python grader.
+No second retrieval is performed for grading. Incomplete search evidence and
+execution failures become provider errors. A completed empty search is preserved
+as `documents: []`; Promptfoo 0.125.1 rejects empty context for its context assertions,
+so those rows cannot pass even if the agent abstains. Read the error before treating
+it as a semantic failure. Faithfulness can also fail to grade an answer with no
+extractable factual claims; the previous rubric's automatic abstention pass is gone.
+The database pool is closed after each invocation to avoid reusing connections
+across the event loops created by the Python worker.
+
+Tracing follows the direct ADK provider pattern: the provider attaches Promptfoo's
+W3C `traceparent`, creates `promptfoo_google_adk_provider`, and exports the native
+ADK workflow, agent, model and tool spans using the OTLP HTTP exporter. The tracer
+provider is initialized once per Python worker and flushed after each invocation.
+Each YAML enables Promptfoo's local OTLP receiver on port **4318** (keep it free).
+No external collector is required. `just eval-view` exposes the stored trace timeline.
+Each row also checks that exactly one provider span exists, `search_documents` ran,
+and no span reports an error. These checks accompany the four RAG metrics.
+
+The installed ADK 2.6.1 emits tool inputs/results under the legacy
+`gcp.vertex.agent.tool_call_args` / `gcp.vertex.agent.tool_response` attributes;
+the adapter also understands the v2 `gen_ai.tool.call.arguments` / `.result` names.
+A second SDK exporter retains ended spans in memory for the current invocation,
+so the context assertions use the same retrieved text as the exported trace.
+Only `search_documents` spans matching the current trace ID are accepted; the
+buffer is cleared between invocations. Keep evaluation concurrency at **1**.
+Missing payloads or a missing search span fail the provider, with no event fallback.
+
+The CLI sets `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY` and
+`ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true` to capture tool arguments and results.
+Traces therefore contain questions, model/tool content and retrieved documents;
+they stay in the ignored local Promptfoo database unless you explicitly export them.
+`PROMPTFOO_ENABLE_OTEL=false` disables extra Python-worker instrumentation, while
+the provider's native ADK exporter remains active. The OTLP HTTP exporter is a dev
+dependency, pinned to the existing OpenTelemetry SDK version 1.42.1.
+
+Install dependencies with `just install` and Node >=22.22.0 (Promptfoo is pinned to
+0.125.1). Configure `.env`, Google ADC, and `PROMPTFOO_GRADER_MODEL` (default
+`gemini-2.5-pro`, independent of the application's `MODEL`). For answer relevance,
+`PROMPTFOO_EMBEDDING_MODEL` defaults to `gemini-embedding-001` and
+`PROMPTFOO_EMBEDDING_REGION` to `europe-west1`; the embedding task is
+`SEMANTIC_SIMILARITY`. This provider is independent of the corpus index embeddings.
+Start PostgreSQL, run
+`just migrate`, and index `docs/fixtures/gr20.md` with title **GR20 Randonnée** using
+the API or the existing Postman collection. The evaluation itself runs ADK directly
+and does not need the HTTP API to remain running.
+
+```sh
+just eval-check              # Validate the four YAML configurations, no model calls
+just test test/unit -q        # Application and adapter tests, no model calls
+just eval-correctness        # One live axis (billable)
+just eval-rag                # All four live axes, sequentially (billable)
+just eval-view               # Local results UI on port 15500
+```
+
+Each axis runs the agent independently: all four together invoke it four times per
+question, so compare per-run evidence rather than assuming an identical answer.
+All suites run even if an earlier one fails; the command keeps a nonzero exit status.
+Reports are `eval/.promptfoo/results/<metric>.json`. Inspect `results.stats` to
+separate assertion failures from technical errors, and inspect each named RAG metric
+rather than the aggregate score that also includes tracing and nonblank-answer checks.
+The answer is in `response.output`; evidence is in `response.metadata.documents`
+and `response.metadata.searches`. A selected run clears only its own
+old report before starting. Reports and the local database are ignored by Git and
+Docker; sharing and CLI telemetry are disabled. Live judge inputs still reach the
+configured model provider. CI does not run model evaluations.
