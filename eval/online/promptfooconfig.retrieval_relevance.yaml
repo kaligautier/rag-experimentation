@@ -37,7 +37,7 @@ defaultTest:
   - type: context-relevance
     metric: retrieval_relevance
     contextTransform: context.metadata.documents
-    threshold: 0.3
+    threshold: 0.5
 tests: file://cases.yaml
 tracing:
   enabled: true

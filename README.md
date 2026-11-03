@@ -165,7 +165,7 @@ are used.
 | `promptfooconfig.correctness.yaml` | `factuality` | 1 | `just eval-correctness` |
 | `promptfooconfig.relevance.yaml` | `answer-relevance` | 0.7 | `just eval-relevance` |
 | `promptfooconfig.groundedness.yaml` | `context-faithfulness` | 1 | `just eval-groundedness` |
-| `promptfooconfig.retrieval_relevance.yaml` | `context-relevance` | 0.3 | `just eval-retrieval-relevance` |
+| `promptfooconfig.retrieval_relevance.yaml` | `context-relevance` | 0.5 | `just eval-retrieval-relevance` |
 
 These are starting thresholds, not calibrated quality gates. Expand the two-case
 dataset and review judge explanations before using the scores to block a release.
