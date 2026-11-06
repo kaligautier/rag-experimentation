@@ -1,6 +1,7 @@
 """Error handling with structured exceptions and HTTP status mapping."""
 
 from enum import Enum
+from typing import Optional
 
 
 class ErrorCode(Enum):
@@ -78,8 +79,8 @@ class AppError(Exception):
     def __init__(
         self,
         error_code: ErrorCode,
-        message: str = None,
-        details: dict = None,
+        message: Optional[str] = None,
+        details: Optional[dict] = None,
     ):
         self.error_code = error_code
         self.status_code = HTTP_STATUS_CODES.get(error_code, 500)
@@ -103,10 +104,11 @@ class AppError(Exception):
         }
 
 
-class InvalidInputError(AppError, ValueError):
+# --- Generic errors ---
+class InvalidInputError(AppError):
     """Raised when input validation fails."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.INVALID_INPUT,
             message=message,
@@ -117,7 +119,7 @@ class InvalidInputError(AppError, ValueError):
 class ConfigurationError(AppError):
     """Raised when configuration is invalid or missing."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.CONFIGURATION_ERROR,
             message=message,
@@ -128,7 +130,7 @@ class ConfigurationError(AppError):
 class InstructionError(AppError):
     """Raised when instruction loading or rendering fails."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.INSTRUCTION_ERROR,
             message=message,
@@ -139,7 +141,7 @@ class InstructionError(AppError):
 class ToolExecutionError(AppError):
     """Raised when tool execution fails."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.TOOL_EXECUTION_ERROR,
             message=message,
@@ -156,7 +158,7 @@ class ToolExecutionError(AppError):
 class UnsupportedDocumentError(AppError, ValueError):
     """Raised when the MIME type or file extension is not Markdown."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.UNSUPPORTED_DOCUMENT,
             message=message,
@@ -167,7 +169,7 @@ class UnsupportedDocumentError(AppError, ValueError):
 class UnsafeStoragePathError(AppError, ValueError):
     """A client-provided name or key would escape the configured storage root."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.UNSAFE_FILENAME,
             message=message,
@@ -178,7 +180,7 @@ class UnsafeStoragePathError(AppError, ValueError):
 class DocumentLimitError(AppError, ValueError):
     """The document exceeds a configured resource limit (bytes or chunks)."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.DOCUMENT_TOO_LARGE,
             message=message,
@@ -189,7 +191,7 @@ class DocumentLimitError(AppError, ValueError):
 class EmptyDocumentError(AppError, ValueError):
     """The document produced no indexable text."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.EMPTY_DOCUMENT,
             message=message,
@@ -200,7 +202,7 @@ class EmptyDocumentError(AppError, ValueError):
 class DocumentNotFoundError(AppError, ValueError):
     """Raised when a document ID does not exist."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.DOCUMENT_NOT_FOUND,
             message=message,
@@ -211,7 +213,7 @@ class DocumentNotFoundError(AppError, ValueError):
 class EmbeddingError(AppError, ValueError):
     """The embedding provider returned an unusable response."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.EMBEDDING_ERROR,
             message=message,
@@ -222,7 +224,7 @@ class EmbeddingError(AppError, ValueError):
 class EmbeddingSchemaMismatchError(AppError, RuntimeError):
     """Stored vectors must be migrated before embedding operations can run."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.EMBEDDING_SCHEMA_MISMATCH,
             message=message,
@@ -233,7 +235,7 @@ class EmbeddingSchemaMismatchError(AppError, RuntimeError):
 class DocumentNotIndexedError(AppError):
     """An existing document needs forced reindexing before it can be reused."""
 
-    def __init__(self, message: str = None, details: dict = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[dict] = None):
         super().__init__(
             error_code=ErrorCode.DOCUMENT_NOT_INDEXED,
             message=message,
