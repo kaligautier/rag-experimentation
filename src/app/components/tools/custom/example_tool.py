@@ -40,10 +40,13 @@ def calculate(
     Raises:
         ToolExecutionError: If calculation fails
     """
-    logger.info(f"Calculate tool called: {operation}({a}, {b})")
+    # ADK passes an ``Operation`` member, or the raw string when the model sent
+    # an operation that does not exist. Logs and error details carry the value.
+    name = operation.value if isinstance(operation, Operation) else operation
+    logger.info(f"Calculate tool called: {name}({a}, {b})")
 
     try:
-        # Convert string to Operation enum
+        # Rejects an operation that does not exist
         operation_enum = Operation(operation)
 
         # Call business logic client
@@ -54,7 +57,7 @@ def calculate(
         # Wrap service errors as ToolExecutionError
         raise ToolExecutionError(
             message=str(e),
-            details={"operation": operation, "a": a, "b": b},
+            details={"operation": name, "a": a, "b": b},
         ) from e
 
 
