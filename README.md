@@ -135,7 +135,7 @@ Every PR and push to `main` runs Ruff, the full unit and real PostgreSQL/Liquiba
 suite (skipped tests fail CI), Python package and Docker builds, and a dependency
 audit. The database is disposable and uses a generated password. Tests do not
 need cloud credentials; live embedding and agent evaluation remain separate
-checks. Reviewed dependency exceptions are recorded in
+checks. The audit policy and any reviewed exceptions are recorded in
 [`docs/dependency-security.md`](docs/dependency-security.md).
 
 ## Evaluation and examples

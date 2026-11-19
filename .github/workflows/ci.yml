@@ -65,10 +65,9 @@ jobs:
       - name: Build Python package
         run: uv build
       - name: Audit installed dependencies
-        # See docs/dependency-security.md for this narrowly scoped exception.
         run: |
           site_packages=$(uv run --no-sync python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
-          uvx --from pip-audit==2.10.1 pip-audit --path "$site_packages" --ignore-vuln CVE-2026-81726
+          uvx --from pip-audit==2.10.1 pip-audit --path "$site_packages"
       - name: Build runtime image
         run: docker build --tag rag-ci:check .
       - name: Remove disposable database

@@ -83,6 +83,47 @@ class TestCalculateTool:
 
             mock_client.calculate.assert_called_once()
 
+    async def should_log_and_report_the_operation_as_adk_passes_it(
+        self, mock_tool_context, caplog
+    ):
+        import logging
+
+        from app.components.tools.custom.example_tool import calculate_tool
+
+        # Through ADK, as the model calls it: the operation arrives as a string
+        # and ADK 2.14 hands the function an ``Operation`` member.
+        with caplog.at_level(logging.INFO):
+            result = await calculate_tool.run_async(
+                args={"operation": "add", "a": 1, "b": 2},
+                tool_context=mock_tool_context,
+            )
+            with pytest.raises(ToolExecutionError) as exc_info:
+                await calculate_tool.run_async(
+                    args={"operation": "divide", "a": 1, "b": 0},
+                    tool_context=mock_tool_context,
+                )
+
+        assert result["result"] == 3
+        assert type(exc_info.value.details["operation"]) is str
+        assert exc_info.value.details["operation"] == "divide"
+        assert [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "app.components.tools.custom.example_tool"
+        ] == ["Calculate tool called: add(1, 2)", "Calculate tool called: divide(1, 0)"]
+
+    async def should_reject_an_operation_that_does_not_exist(self, mock_tool_context):
+        from app.components.tools.custom.example_tool import calculate_tool
+
+        # ADK cannot convert it and passes the string the model sent.
+        with pytest.raises(ToolExecutionError) as exc_info:
+            await calculate_tool.run_async(
+                args={"operation": "modulo", "a": 1, "b": 2},
+                tool_context=mock_tool_context,
+            )
+
+        assert exc_info.value.details == {"operation": "modulo", "a": 1, "b": 2}
+
 
 class TestGetCurrentTimeTool:
     """Tests for get_current_time ADK tool."""

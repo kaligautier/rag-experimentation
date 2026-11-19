@@ -28,16 +28,7 @@ else
     echo "Starting in PRODUCTION mode..."
     echo "Using Gunicorn with Uvicorn workers"
 
-    # Check if ddtrace is available for Datadog tracing
-    if command -v ddtrace-run &> /dev/null; then
-        echo "Datadog tracing enabled"
-        COMMAND_PREFIX="ddtrace-run"
-    else
-        echo "Datadog tracing not available (ddtrace-run not found)"
-        COMMAND_PREFIX=""
-    fi
-
-    exec ${COMMAND_PREFIX} gunicorn ${APP_MODULE} \
+    exec gunicorn ${APP_MODULE} \
         --bind ${HOST}:${PORT} \
         --worker-class uvicorn.workers.UvicornWorker \
         --workers 1 \
