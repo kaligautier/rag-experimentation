@@ -19,6 +19,7 @@ env/
 htmlcov/
 .tox/
 .reports/
+.promptfoo/
 
 # IDE
 .vscode/
