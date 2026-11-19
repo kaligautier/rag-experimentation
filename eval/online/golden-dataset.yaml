@@ -1,0 +1,11 @@
+- description: 'GR20: numeric fact'
+  vars:
+    reference: Le dénivelé négatif est de 700 m (-700 m).
+    query: Dans le document indexé GR20 Randonnée, utilise la recherche documentaire. Quel est
+      le dénivelé négatif de l'étape Refuge de Carrozzu à Refuge de Ciottulu ? Réponds seulement
+      à partir du document.
+- description: 'GR20: number of refuges'
+  vars:
+    reference: Le document indique que le GR20 compte 17 refuges.
+    query: Selon le document indexé GR20 Randonnée, utilise la recherche documentaire. Combien
+      de refuges le GR20 compte-t-il ? Réponds seulement à partir du document.
